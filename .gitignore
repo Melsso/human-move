@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# large data artifacts -- never commit these
+data/downloads/*.pgn
+data/downloads/*.pgn.zst
+data/processed/*.npz
+
+# training artifacts
+training/checkpoints/*.pt
+training/checkpoints/*.ckpt
+training/runs/
+wandb/
+
+.DS_Store
