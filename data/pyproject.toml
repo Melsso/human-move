@@ -1,0 +1,27 @@
+[build-system]
+requires = ["uv_build>=0.9.0,<0.12"]
+build-backend = "uv_build"
+
+[project]
+name = "chess-data"
+version = "0.1.0"
+description = "Downloads and preprocesses Lichess games into rating-bucketed (board, move) training tensors."
+authors = [
+    {name = "Mallem Sofiane",email = "melsopv@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "chess-shared",
+    "python-chess>=1.999",
+    "numpy>=1.26",
+    "zstandard>=0.22",
+    "tqdm>=4.66",
+]
+
+[tool.uv.sources]
+chess-shared = { workspace = true }
+
+[tool.uv.build-backend]
+module-root = ""
+module-name = "chess_data"

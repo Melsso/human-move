@@ -1,0 +1,47 @@
+[project]
+name = "chess-ai-workspace"
+version = "0.1.0"
+description = "Workspace root, not a real package -- just ties shared/data/training/backend together under one lockfile."
+authors = [
+    {name = "Mallem Sofiane",email = "melsopv@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+    "shared",
+    "data",
+    "training",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.0",
+    "ruff>=0.16.8",
+]
+
+[tool.mypy]
+files = [
+    "shared/chess_shared",
+    "data/chess_data",
+    "training/chess_training",
+]
+ignore_missing_imports = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "shared",
+    "data",
+    "training",
+]

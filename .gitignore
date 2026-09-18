@@ -3,16 +3,19 @@ __pycache__/
 *.pyc
 *.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# large data artifacts -- never commit these
 data/downloads/*.pgn
 data/downloads/*.pgn.zst
 data/processed/*.npz
 
-# training artifacts
 training/checkpoints/*.pt
 training/checkpoints/*.ckpt
 training/runs/
 wandb/
+
+best*
+epoch*
 
 .DS_Store
