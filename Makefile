@@ -1,4 +1,4 @@
-.PHONY: test lint format typecheck check sync reset prepare-1 prepare-2 prepare-3 train-1000 train-1500 train-2000 play
+.PHONY: test lint format typecheck check sync reset prepare-1 prepare-2 prepare-3 train-1000 train-1500 train-2000 play serve
 
 sync:
 	uv sync --all-packages
@@ -68,3 +68,6 @@ train-2000: sync
 # usage: make play CHECKPOINT=training/checkpoints/bucket_1000/best.pt
 play: sync
 	uv run --package chess-training python -m chess_training.play $(CHECKPOINT)
+
+serve: sync
+	uv run --package chess-backend uvicorn chess_backend.main:app --reload --port 8000

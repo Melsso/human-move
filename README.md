@@ -12,11 +12,11 @@ Fully local, nothing deployed anywhere (yet).
 
 ```
 chess-ai/
-├── shared/     # board/move encoding — the ONE source of truth, imported by data, training, and backend
+├── shared/     # board/move encoding + inference logic — the ONE source of truth
 ├── data/       # downloads Lichess PGNs, filters by rating, converts to training tensors
-├── training/   # model definition, training loop, checkpoints
-├── backend/    # inference API — loads a checkpoint per tier, serves moves (not built yet)
-└── frontend/   # board UI (not built yet)
+├── training/   # model definition, training loop, checkpoints, terminal play script
+├── backend/    # FastAPI inference API + serves the static frontend
+└── (backend/static/ is the frontend — a single-page board UI, no separate build step)
 ```
 
 `shared` exists because board/move encoding has to be byte-for-byte
@@ -79,8 +79,29 @@ again.
       (`training/tests/`). `chess_training.play` lets you play a game
       against a checkpoint right in the terminal. Elo calibration against
       Stockfish is not built yet.
-- [ ] `backend` — FastAPI inference service
-- [ ] `frontend` — board UI
+- [x] `backend` — FastAPI service (`chess_backend`) that discovers every
+      `training/checkpoints/<tier>/best.pt`, loads/caches models lazily,
+      and exposes `/api/tiers` + `/api/move`. Also serves the static
+      frontend at `/` from the same process (no CORS setup needed for a
+      local project like this). Fully tested (`backend/tests/`) with
+      synthetic checkpoints, and smoke-tested end to end (boot the server,
+      hit every route with curl) before being handed off.
+- [x] `frontend` — single-page board UI at `backend/static/index.html`
+      (chessboard.js + chess.js off cdnjs, no build step). Drag pieces to
+      move, pick a tier from the dropdown, see the model's top-5
+      candidate moves and probabilities after each of its turns.
+
+## Playing against your trained models
+
+```bash
+make serve
+# then open http://127.0.0.1:8000 in a browser
+```
+
+The tier dropdown is populated from whatever's actually sitting in
+`training/checkpoints/*/best.pt` — no hardcoded tier names, so it reflects
+whatever you've actually trained, under whatever directory names you
+happened to use.
 
 ## Day-to-day commands
 
@@ -99,7 +120,8 @@ make reset            # rm -rf .venv + uv cache clean + fresh sync -- use this i
 
 make prepare-1 / prepare-2 / prepare-3   # rebuild the sample rating buckets
 make train-1000 / train-1500 / train-2000   # train each rating tier
-make play CHECKPOINT=training/checkpoints/bucket_1000/best.pt   # play a game vs a checkpoint
+make play CHECKPOINT=training/checkpoints/bucket_1000/best.pt   # play a game vs a checkpoint (terminal)
+make serve            # FastAPI backend + board UI at http://127.0.0.1:8000
 ```
 
 `train-*` targets assume your real, full-size buckets are at

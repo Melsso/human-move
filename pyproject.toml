@@ -17,6 +17,7 @@ members = [
     "shared",
     "data",
     "training",
+    "backend",
 ]
 
 [dependency-groups]
@@ -31,6 +32,7 @@ files = [
     "shared/chess_shared",
     "data/chess_data",
     "training/chess_training",
+    "backend/chess_backend",
 ]
 ignore_missing_imports = true
 check_untyped_defs = true
@@ -44,4 +46,5 @@ pythonpath = [
     "shared",
     "data",
     "training",
+    "backend",
 ]

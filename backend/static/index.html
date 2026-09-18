@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>chess-ai</title>
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css"
+  />
+  <style>
+    :root {
+      --bg: #1a1a1a;
+      --panel: #242424;
+      --text: #e8e8e8;
+      --muted: #9a9a9a;
+      --accent: #4f8ef7;
+      --border: #333;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px;
+      min-height: 100vh;
+    }
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      margin: 0 0 24px 0;
+    }
+    .layout {
+      display: flex;
+      gap: 32px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 900px;
+    }
+    #board {
+      width: 480px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 6px;
+    }
+    select, button {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #2e2e2e;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+    button {
+      cursor: pointer;
+      background: var(--accent);
+      border: none;
+      font-weight: 600;
+    }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #status {
+      font-size: 0.9rem;
+      min-height: 1.4em;
+    }
+    #status.error { color: #f77; }
+    #status.info { color: var(--muted); }
+    .tier-meta {
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    #candidates {
+      font-size: 0.8rem;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .candidate-row {
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+    }
+    .candidate-row.chosen { color: var(--accent); font-weight: 600; }
+    #moveLog {
+      font-size: 0.8rem;
+      color: var(--muted);
+      max-height: 160px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <h1>chess-ai</h1>
+
+  <div class="layout">
+    <div id="board"></div>
+
+    <div class="panel">
+      <div>
+        <label for="tierSelect">opponent</label>
+        <select id="tierSelect"></select>
+        <div class="tier-meta" id="tierMeta"></div>
+      </div>
+
+      <button id="newGameBtn">New game</button>
+
+      <div id="status" class="info">loading...</div>
+
+      <div>
+        <label>model's last move considered</label>
+        <div id="candidates"></div>
+      </div>
+
+      <div>
+        <label>moves</label>
+        <div id="moveLog"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+
+  <script>
+    const game = new Chess();
+    let board = null;
+    let currentTier = null;
+    let thinking = false;
+
+    const statusEl = document.getElementById("status");
+    const tierSelect = document.getElementById("tierSelect");
+    const tierMeta = document.getElementById("tierMeta");
+    const candidatesEl = document.getElementById("candidates");
+    const moveLogEl = document.getElementById("moveLog");
+
+    function setStatus(text, kind) {
+      statusEl.textContent = text;
+      statusEl.className = kind || "info";
+    }
+
+    function logMove(text) {
+      const line = document.createElement("div");
+      line.textContent = text;
+      moveLogEl.prepend(line);
+    }
+
+    function renderCandidates(candidates, chosenUci) {
+      candidatesEl.innerHTML = "";
+      candidates.forEach((c) => {
+        const row = document.createElement("div");
+        row.className = "candidate-row" + (c.uci === chosenUci ? " chosen" : "");
+        row.textContent = `${c.san}  ${(c.prob * 100).toFixed(1)}%`;
+        candidatesEl.appendChild(row);
+      });
+    }
+
+    async function loadTiers() {
+      const res = await fetch("/api/tiers");
+      const tiers = await res.json();
+
+      if (tiers.length === 0) {
+        setStatus(
+          "no trained checkpoints found under training/checkpoints/*/best.pt",
+          "error"
+        );
+        tierSelect.disabled = true;
+        return;
+      }
+
+      tierSelect.innerHTML = "";
+      tiers.forEach((t) => {
+        const opt = document.createElement("option");
+        opt.value = t.tier;
+        opt.textContent = t.tier;
+        opt.dataset.epoch = t.epoch;
+        opt.dataset.top1 = t.val_top1;
+        opt.dataset.top3 = t.val_top3;
+        tierSelect.appendChild(opt);
+      });
+      currentTier = tiers[0].tier;
+      updateTierMeta(tiers[0]);
+      setStatus("your move", "info");
+    }
+
+    function updateTierMeta(t) {
+      tierMeta.textContent =
+        `epoch ${t.epoch} \u00b7 val top1 ${(t.val_top1 * 100).toFixed(1)}% \u00b7 ` +
+        `val top3 ${(t.val_top3 * 100).toFixed(1)}%`;
+    }
+
+    tierSelect.addEventListener("change", () => {
+      currentTier = tierSelect.value;
+      const opt = tierSelect.selectedOptions[0];
+      updateTierMeta({
+        epoch: opt.dataset.epoch,
+        val_top1: Number(opt.dataset.top1),
+        val_top3: Number(opt.dataset.top3),
+      });
+    });
+
+    function newGame() {
+      game.reset();
+      board.start();
+      candidatesEl.innerHTML = "";
+      moveLogEl.innerHTML = "";
+      thinking = false;
+      setStatus("your move", "info");
+    }
+
+    document.getElementById("newGameBtn").addEventListener("click", newGame);
+
+    function onDragStart(source, piece) {
+      if (thinking || game.game_over()) return false;
+      // only let the human drag their own (white) pieces, and only on their turn
+      if (game.turn() !== "w" || piece.search(/^b/) !== -1) return false;
+    }
+
+    async function onDrop(source, target) {
+      const fenBeforeMove = game.fen();
+      const move = game.move({ from: source, to: target, promotion: "q" });
+      if (move === null) return "snapback";
+
+      logMove(`you: ${move.san}`);
+
+      if (game.game_over()) {
+        setStatus(`game over: ${resultText()}`, "info");
+        return;
+      }
+
+      thinking = true;
+      setStatus("model is thinking...", "info");
+
+      try {
+        const res = await fetch("/api/move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fen: fenBeforeMove,
+            move_uci: move.from + move.to + (move.promotion || ""),
+            tier: currentTier,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          setStatus(`error: ${err.detail}`, "error");
+          thinking = false;
+          return;
+        }
+
+        const data = await res.json();
+
+        if (data.model_move_uci) {
+          game.load(data.fen_after_model);
+          board.position(data.fen_after_model);
+          logMove(`model (${currentTier}): ${data.model_move_san}`);
+          renderCandidates(data.top_candidates, data.model_move_uci);
+        }
+
+        if (data.game_over) {
+          setStatus(`game over: ${resultText()}`, "info");
+        } else {
+          setStatus("your move", "info");
+        }
+      } catch (e) {
+        setStatus(`connection error: ${e}`, "error");
+      } finally {
+        thinking = false;
+      }
+    }
+
+    function resultText() {
+      if (game.in_checkmate()) return `checkmate, ${game.turn() === "w" ? "black" : "white"} wins`;
+      if (game.in_stalemate()) return "stalemate";
+      if (game.in_draw()) return "draw";
+      return game.turn() === "w" ? "black wins" : "white wins";
+    }
+
+    function onSnapEnd() {
+      board.position(game.fen());
+    }
+
+    board = Chessboard("board", {
+      draggable: true,
+      position: "start",
+      pieceTheme: "https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png",
+      onDragStart,
+      onDrop,
+      onSnapEnd,
+    });
+
+    loadTiers();
+  </script>
+</body>
+</html>
