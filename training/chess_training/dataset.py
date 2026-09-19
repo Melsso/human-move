@@ -3,17 +3,25 @@ Loads the (board, move) tensors produced by `chess_data.prepare` as a
 PyTorch Dataset.
 
 MEMORY NOTE, worth reading if you're on a RAM-constrained machine (e.g. an
-8/16GB M4): `chess_data.prepare` writes buckets with `np.savez_compressed`.
-NumPy's `mmap_mode` is silently ignored for compressed .npz archives --
-there is no way to memory-map a compressed file, since it has to be
-decompressed into memory to be read at all. So despite requesting
-`mmap_mode="r"` below, the array is fully loaded into RAM regardless. We
-detect this and warn once rather than pretending it's memory-mapped when
-it isn't. If a bucket ever gets large enough that this matters, the real
-fix is to have `chess_data.prepare` write with plain `np.savez` (no
-compression) instead -- larger on disk, but then `mmap_mode` genuinely
-works and positions get paged in from disk on demand instead of sitting
-in RAM.
+8/16GB M4): `.npz` files -- whether written with `np.savez_compressed` or
+plain `np.savez` -- can NEVER be memory-mapped. This isn't a compression
+thing; per NumPy's own docs, `mmap_mode` has no effect on any zipped file,
+since `.npz` is always a zip archive under the hood (an earlier version of
+this docstring incorrectly claimed switching to uncompressed .npz would
+fix it -- it doesn't). The only way to actually get `mmap_mode` to do
+something is a plain, non-zipped `.npy` file written with `np.save`.
+
+Given that, the real fix for a bucket that's too large to comfortably load
+into RAM isn't a different `.npz` flag -- it's not making one giant bucket
+in the first place. `chess_data.prepare`'s `--skip-games`/`--max-games`
+let you process a big PGN dump in smaller chunks instead (see the root
+README's chunked-training section), each easily small enough to load
+whole, and `chess_training.train`'s `--resume-from` lets you train across
+them incrementally. That sidesteps this limitation entirely rather than
+working around it.
+
+We still detect and warn here (rather than silently eating the RAM cost)
+so a bucket that turns out bigger than expected is visible immediately.
 
 We load the underlying arrays exactly ONCE and share them between the
 train and val `Dataset` objects (see `make_train_val_split`) -- loading
@@ -76,10 +84,12 @@ def make_train_val_split(
 
     if not isinstance(boards, np.memmap):
         warnings.warn(
-            f"'{npz_path}' is a compressed .npz (from savez_compressed), so it could not "
-            "actually be memory-mapped -- the full array was loaded into RAM instead "
-            f"({boards.nbytes / 1e9:.2f}GB for boards alone). See the module docstring in "
-            "chess_training/dataset.py if this matters for your machine's RAM.",
+            f"'{npz_path}' is a .npz file, which can never be memory-mapped "
+            "regardless of compression -- the full array was loaded into RAM "
+            f"instead ({boards.nbytes / 1e9:.2f}GB for boards alone). If this bucket "
+            "is uncomfortably large for your machine's RAM, process your source data "
+            "in smaller chunks instead (see chess_data.prepare's --skip-games and this "
+            "module's docstring), rather than trying to fix this via mmap.",
             stacklevel=2,
         )
 

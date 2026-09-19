@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 from chess_backend.inference import ModelRegistry, TierNotFoundError, compute_model_move
-from chess_backend.schemas import MoveRequest, MoveResponse, TierInfo
+from chess_backend.schemas import MoveCandidate, MoveRequest, MoveResponse, TierInfo
 
 app = FastAPI(title="chess-ai backend")
 registry = ModelRegistry()
@@ -91,7 +91,7 @@ def make_move(req: MoveRequest) -> MoveResponse:
         fen_after_model=fen_after_model,
         game_over=board.is_game_over(),
         result=board.result() if board.is_game_over() else None,
-        top_candidates=candidates,
+        top_candidates=[MoveCandidate(**c) for c in candidates],
     )
 
 

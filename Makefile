@@ -1,4 +1,6 @@
-.PHONY: test lint format typecheck check sync reset prepare-1 prepare-2 prepare-3 train-1000 train-1500 train-2000 play serve
+.PHONY: test lint format typecheck check sync reset prepare-1 prepare-2 prepare-3 train-1000 train-1500 train-2000 play serve prepare-chunk train-chunk
+
+EPOCHS ?= 10
 
 sync:
 	uv sync --all-packages
@@ -71,3 +73,18 @@ play: sync
 
 serve: sync
 	uv run --package chess-backend uvicorn chess_backend.main:app --reload --port 8000
+
+prepare-chunk: sync
+	uv run --package chess-data python -m chess_data.prepare \
+		$(SOURCE) \
+		data/processed/bucket_$(BUCKET)_$(CHUNK).npz \
+		--min-elo $(MIN_ELO) --max-elo $(MAX_ELO) \
+		--skip-games $$(( ($(CHUNK) - 1) * $(CHUNK_SIZE) )) \
+		--max-games $(CHUNK_SIZE)
+
+train-chunk: sync
+	uv run --package chess-training python -m chess_training.train \
+		data/processed/bucket_$(BUCKET)_$(CHUNK).npz \
+		--out-dir training/checkpoints/bucket_$(BUCKET)_$(CHUNK) \
+		--epochs $(EPOCHS) --batch-size 256 --lr 1e-3 \
+		$(if $(RESUME_FROM),--resume-from $(RESUME_FROM),)

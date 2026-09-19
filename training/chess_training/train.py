@@ -8,6 +8,16 @@ Usage:
         --out-dir checkpoints/bucket_1000 \
         --epochs 10 --batch-size 256 --lr 1e-3
 
+CHUNKED / INCREMENTAL TRAINING (--resume-from): if your dataset was too
+big to process in one go (see chess_data.prepare's --skip-games), you can
+train on it one chunk at a time instead -- train on chunk 1's .npz for a
+few epochs, then train on chunk 2's .npz with `--resume-from` pointing at
+chunk 1's checkpoint, and so on. The model architecture (num_blocks/
+num_filters) and epoch numbering are both picked up automatically from the
+checkpoint you resume from, so epoch counts stay cumulative across chunks
+(chunk 2 continues from wherever chunk 1 left off) and checkpoint files
+across chunks never collide even if you reuse the same --out-dir.
+
 What this script does NOT do (yet, on purpose): tune hyperparameters for
 you, early-stop, or run the elo-calibration eval against Stockfish -- that
 comes next, once we've confirmed this loop actually converges on your real
@@ -79,9 +89,26 @@ def train(
     num_blocks: int,
     num_filters: int,
     num_workers: int,
+    resume_from: Path | None = None,
 ) -> None:
     device = pick_device()
     print(f"device: {device}")
+
+    start_epoch = 0
+    resumed_state_dict = None
+    if resume_from is not None:
+        resume_checkpoint = torch.load(
+            resume_from, map_location="cpu", weights_only=True
+        )
+        num_blocks = resume_checkpoint["num_blocks"]
+        num_filters = resume_checkpoint["num_filters"]
+        resumed_state_dict = resume_checkpoint["model_state_dict"]
+        start_epoch = resume_checkpoint["epoch"]
+        print(
+            f"resuming from {resume_from} (was at epoch {start_epoch}, "
+            f"val_top1={resume_checkpoint['val_top1']:.4f}) -- architecture: "
+            f"{num_blocks} blocks x {num_filters} filters"
+        )
 
     train_ds, val_ds = make_train_val_split(str(npz_path), val_fraction=val_fraction)
     print(f"train positions: {len(train_ds)}, val positions: {len(val_ds)}")
@@ -111,13 +138,16 @@ def train(
         num_blocks=num_blocks,
         num_filters=num_filters,
     ).to(device)
+    if resumed_state_dict is not None:
+        model.load_state_dict(resumed_state_dict)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
 
     out_dir.mkdir(parents=True, exist_ok=True)
     best_val_acc = -1.0
 
-    for epoch in range(1, epochs + 1):
+    for local_epoch in range(1, epochs + 1):
+        global_epoch = start_epoch + local_epoch
         model.train()
         epoch_start = time.time()
         running_loss = 0.0
@@ -139,7 +169,7 @@ def train(
         elapsed = time.time() - epoch_start
 
         print(
-            f"epoch {epoch:>3}/{epochs} "
+            f"epoch {global_epoch:>4} (chunk epoch {local_epoch}/{epochs}) "
             f"train_loss={running_loss / max(n_batches, 1):.4f} "
             f"val_loss={val_loss:.4f} "
             f"val_top1={val_top1:.4f} "
@@ -149,13 +179,13 @@ def train(
 
         checkpoint = {
             "model_state_dict": model.state_dict(),
-            "epoch": epoch,
+            "epoch": global_epoch,
             "val_top1": val_top1,
             "val_top3": val_top3,
             "num_blocks": num_blocks,
             "num_filters": num_filters,
         }
-        torch.save(checkpoint, out_dir / f"epoch_{epoch}.pt")
+        torch.save(checkpoint, out_dir / f"epoch_{global_epoch}.pt")
 
         if val_top1 > best_val_acc:
             best_val_acc = val_top1
@@ -184,6 +214,14 @@ def main() -> None:
         "--num-filters", type=int, default=64, help="Conv filters (Maia uses 64)"
     )
     parser.add_argument("--num-workers", type=int, default=2)
+    parser.add_argument(
+        "--resume-from",
+        type=Path,
+        default=None,
+        help="Checkpoint (.pt) to continue training from -- for chunked/incremental "
+        "training across multiple dataset chunks. Architecture and epoch numbering "
+        "are read from the checkpoint automatically.",
+    )
     args = parser.parse_args()
 
     train(
@@ -196,6 +234,7 @@ def main() -> None:
         num_blocks=args.num_blocks,
         num_filters=args.num_filters,
         num_workers=args.num_workers,
+        resume_from=args.resume_from,
     )
 
 

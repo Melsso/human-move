@@ -62,7 +62,7 @@ def test_evaluate_runs_and_returns_sane_metrics(tmp_path: Path):
     assert loss > 0
     assert 0.0 <= top1 <= 1.0
     assert 0.0 <= top3 <= 1.0
-    assert top3 >= top1  # top-3 accuracy can never be lower than top-1
+    assert top3 >= top1
 
 
 def test_full_training_loop_runs_and_produces_checkpoints(tmp_path: Path):
@@ -122,10 +122,164 @@ def test_compressed_npz_triggers_mmap_fallback_warning(tmp_path: Path):
     warning rather than silently pretending it's memory-mapped.
     """
     npz_path = tmp_path / "synthetic.npz"
-    _write_synthetic_npz(npz_path, n=20)  # _write_synthetic_npz uses savez_compressed
+    _write_synthetic_npz(npz_path, n=20)
 
-    with pytest.warns(UserWarning, match="could not actually be memory-mapped"):
+    with pytest.warns(UserWarning, match="can never be memory-mapped"):
         make_train_val_split(str(npz_path), val_fraction=0.2, seed=0)
+
+
+def test_resume_from_picks_up_architecture_from_checkpoint_not_args(tmp_path: Path):
+    """
+    Chunked training relies on --resume-from being the source of truth for
+    architecture, not whatever num_blocks/num_filters happens to be passed
+    on the CLI for the later chunk -- otherwise resuming with a typo'd or
+    forgotten flag would silently either crash on a state_dict mismatch or,
+    worse, silently build the wrong-shaped model. Here we deliberately pass
+    WRONG num_blocks/num_filters to the resuming call and confirm the
+    checkpoint it produces still reflects the ORIGINAL architecture.
+    """
+    torch.manual_seed(0)
+    n = 16
+    rng = np.random.default_rng(0)
+    boards = rng.random((n, NUM_PLANES, 8, 8), dtype=np.float32)
+    moves = rng.integers(0, NUM_MOVES, size=n, dtype=np.int64)
+    npz_path = tmp_path / "data.npz"
+    np.savez_compressed(npz_path, boards=boards, moves=moves)
+
+    chunk1_dir = tmp_path / "chunk1"
+    train(
+        npz_path=npz_path,
+        out_dir=chunk1_dir,
+        epochs=1,
+        batch_size=4,
+        lr=1e-3,
+        val_fraction=0.25,
+        num_blocks=3,
+        num_filters=12,
+        num_workers=0,
+    )
+    chunk1_checkpoint = torch.load(chunk1_dir / "epoch_1.pt", weights_only=True)
+    assert chunk1_checkpoint["num_blocks"] == 3
+    assert chunk1_checkpoint["num_filters"] == 12
+
+    chunk2_dir = tmp_path / "chunk2"
+    train(
+        npz_path=npz_path,
+        out_dir=chunk2_dir,
+        epochs=1,
+        batch_size=4,
+        lr=1e-3,
+        val_fraction=0.25,
+        num_blocks=999,
+        num_filters=999,
+        num_workers=0,
+        resume_from=chunk1_dir / "epoch_1.pt",
+    )
+    chunk2_checkpoint = torch.load(chunk2_dir / "epoch_2.pt", weights_only=True)
+    assert chunk2_checkpoint["num_blocks"] == 3
+    assert chunk2_checkpoint["num_filters"] == 12
+
+
+def test_resume_from_continues_epoch_numbering_cumulatively(tmp_path: Path):
+    torch.manual_seed(0)
+    n = 16
+    rng = np.random.default_rng(0)
+    boards = rng.random((n, NUM_PLANES, 8, 8), dtype=np.float32)
+    moves = rng.integers(0, NUM_MOVES, size=n, dtype=np.int64)
+    npz_path = tmp_path / "data.npz"
+    np.savez_compressed(npz_path, boards=boards, moves=moves)
+
+    chunk1_dir = tmp_path / "chunk1"
+    train(
+        npz_path=npz_path,
+        out_dir=chunk1_dir,
+        epochs=5,
+        batch_size=4,
+        lr=1e-3,
+        val_fraction=0.25,
+        num_blocks=2,
+        num_filters=8,
+        num_workers=0,
+    )
+    assert (chunk1_dir / "epoch_5.pt").exists()
+
+    chunk2_dir = tmp_path / "chunk2"
+    train(
+        npz_path=npz_path,
+        out_dir=chunk2_dir,
+        epochs=3,
+        batch_size=4,
+        lr=1e-3,
+        val_fraction=0.25,
+        num_blocks=2,
+        num_filters=8,
+        num_workers=0,
+        resume_from=chunk1_dir / "epoch_5.pt",
+    )
+    assert not (chunk2_dir / "epoch_1.pt").exists()
+    assert (chunk2_dir / "epoch_6.pt").exists()
+    assert (chunk2_dir / "epoch_7.pt").exists()
+    assert (chunk2_dir / "epoch_8.pt").exists()
+
+
+def test_resume_from_actually_warm_starts_not_reinitializes(tmp_path: Path):
+    """
+    The test that actually matters: does --resume-from load the PREVIOUS
+    weights, or does it silently start from a fresh random init while just
+    happening to get the epoch numbering right? We train chunk 1 long
+    enough to overfit a tiny deterministic dataset, then "resume" chunk 2
+    on the SAME dataset for only 1 epoch. If the weights were truly
+    warm-started, accuracy should already be high going in (a from-scratch
+    model couldn't reach it in a single epoch on this tiny, deliberately
+    non-trivial-to-learn-by-chance dataset).
+    """
+    torch.manual_seed(0)
+    n = 32
+    rng = np.random.default_rng(0)
+    boards = rng.random((n, NUM_PLANES, 8, 8), dtype=np.float32)
+    moves = (np.round(boards.sum(axis=(1, 2, 3)) * 1000).astype(np.int64)) % NUM_MOVES
+    npz_path = tmp_path / "learnable.npz"
+    np.savez_compressed(npz_path, boards=boards, moves=moves)
+
+    chunk1_dir = tmp_path / "chunk1"
+    train(
+        npz_path=npz_path,
+        out_dir=chunk1_dir,
+        epochs=30,
+        batch_size=8,
+        lr=3e-3,
+        val_fraction=0.25,
+        num_blocks=2,
+        num_filters=16,
+        num_workers=0,
+    )
+
+    chunk2_dir = tmp_path / "chunk2"
+    train(
+        npz_path=npz_path,
+        out_dir=chunk2_dir,
+        epochs=1,
+        batch_size=8,
+        lr=3e-3,
+        val_fraction=0.25,
+        num_blocks=2,
+        num_filters=16,
+        num_workers=0,
+        resume_from=chunk1_dir / "epoch_30.pt",
+    )
+
+    chunk2_checkpoint = torch.load(chunk2_dir / "epoch_31.pt", weights_only=True)
+    model = MaiaPolicyNet(NUM_PLANES, NUM_MOVES, num_blocks=2, num_filters=16)
+    model.load_state_dict(chunk2_checkpoint["model_state_dict"])
+    model.eval()
+    with torch.no_grad():
+        preds = model(torch.from_numpy(boards)).argmax(dim=1).numpy()
+    train_acc = (preds == moves).mean()
+    assert train_acc > 0.5, (
+        f"expected chunk 2 to still reflect chunk 1's learning after just 1 more "
+        f"epoch, got acc={train_acc} -- looks like resume_from reinitialized "
+        "instead of warm-starting"
+    )
 
 
 def test_model_can_overfit_a_tiny_learnable_dataset(tmp_path: Path):
@@ -137,7 +291,14 @@ def test_model_can_overfit_a_tiny_learnable_dataset(tmp_path: Path):
     accuracy climbs sharply. If backprop, the loss function, or the
     optimizer step were wired wrong, this would stay near chance level
     (1/NUM_MOVES) no matter how many epochs we run.
+
+    torch.manual_seed is set explicitly because the model's weight
+    initialization draws from PyTorch's global RNG, which is NOT reset
+    between tests -- without seeding it here, this test's pass/fail
+    depended on how many random draws happened in whatever tests ran
+    before it in the suite (passed reliably alone, flaky in the full run).
     """
+    torch.manual_seed(0)
     n = 32
     rng = np.random.default_rng(0)
     boards = rng.random((n, NUM_PLANES, 8, 8), dtype=np.float32)
@@ -188,7 +349,7 @@ def test_train_raises_on_batch_size_larger_than_train_split(tmp_path: Path):
             npz_path=npz_path,
             out_dir=tmp_path / "checkpoints",
             epochs=1,
-            batch_size=32,  # larger than the ~6-position train split
+            batch_size=32,
             lr=1e-3,
             val_fraction=0.25,
             num_blocks=1,

@@ -40,6 +40,12 @@ class Candidate(TypedDict):
     prob: float
 
 
+class CheckpointMeta(TypedDict):
+    epoch: int
+    val_top1: float
+    val_top3: float
+
+
 class ModelRegistry:
     """
     Scans `checkpoints_dir` for `<tier_name>/best.pt` and lazily loads/caches
@@ -52,7 +58,7 @@ class ModelRegistry:
     def __init__(self, checkpoints_dir: Path = DEFAULT_CHECKPOINTS_DIR) -> None:
         self.checkpoints_dir = checkpoints_dir
         self._models: dict[str, MaiaPolicyNet] = {}
-        self._meta: dict[str, dict[str, float | int]] = {}
+        self._meta: dict[str, CheckpointMeta] = {}
 
     def discover_tiers(self) -> dict[str, Path]:
         tiers: dict[str, Path] = {}
@@ -90,7 +96,7 @@ class ModelRegistry:
         }
         return model
 
-    def get_meta(self, tier: str) -> dict[str, float | int]:
+    def get_meta(self, tier: str) -> CheckpointMeta:
         self.get_model(tier)
         return self._meta[tier]
 
