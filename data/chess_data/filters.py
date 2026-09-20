@@ -1,16 +1,8 @@
-"""
-Decides which games from a raw Lichess PGN dump are worth training on.
-
-Lichess dumps contain everything: bullet games, bot games, casual (unrated)
-games, aborted games, variant games (Chess960, King of the Hill, ...). Most
-of that is noise for "learn what a human at rating X plays" -- bot games in
-particular would teach the model to imitate an engine, not a human, which
-defeats the entire point.
-"""
-
 from __future__ import annotations
 
 import chess.pgn
+
+from chess_data.brackets import EloBracket
 
 
 def game_average_elo(headers: chess.pgn.Headers) -> float | None:
@@ -55,42 +47,17 @@ def should_keep_game(
     return min_elo <= avg <= max_elo
 
 
-class FilteringGameBuilder(chess.pgn.GameBuilder):
-    """
-    A chess.pgn.GameBuilder that decides whether to keep a game as soon as
-    its headers are parsed, instead of after the whole game (headers +
-    movetext) has been parsed.
-
-    chess.pgn.read_game() calls Visitor.end_headers() right after the header
-    block is consumed, before it starts parsing any moves. If end_headers()
-    returns chess.pgn.SKIP, the parser takes its fast path for the rest of
-    the game: it scans the movetext with a cheap regex just to find the game
-    boundary (for correctly skipping over "}"/"{" in comments), without
-    tokenizing moves, running SAN parsing, or pushing anything onto a board.
-    That's exactly the expensive part we want to skip for games we're going
-    to throw away anyway.
-
-    If the game passes the filter, end_headers() returns normally and
-    chess.pgn.GameBuilder takes over from there, building the full game tree
-    exactly as it would with the default visitor.
-
-    This has to happen inside a single read_game() call (rather than calling
-    chess.pgn.read_headers() and then, if wanted, chess.pgn.read_game() on
-    the same handle) because read_headers() already consumes and discards
-    the movetext of the game whose headers it just returned, and getting
-    back to reparse it would require seeking backwards -- which a streamed
-    .zst decompressor generally can't do.
-    """
-
-    def __init__(self, min_elo: int, max_elo: int, max_elo_gap: int = 200) -> None:
+class MultiBucketGameBuilder(chess.pgn.GameBuilder):
+    def __init__(self, brackets: list[EloBracket]) -> None:
         super().__init__()
-        self.min_elo = min_elo
-        self.max_elo = max_elo
-        self.max_elo_gap = max_elo_gap
+        self.brackets = brackets
+        self.matched_bracket: EloBracket | None = None
 
     def end_headers(self) -> chess.pgn.SkipType | None:
-        if not should_keep_game(
-            self.game.headers, self.min_elo, self.max_elo, self.max_elo_gap
-        ):
-            return chess.pgn.SKIP
-        return super().end_headers()
+        for bracket in self.brackets:
+            if should_keep_game(
+                self.game.headers, bracket.min_elo, bracket.max_elo, bracket.max_elo_gap
+            ):
+                self.matched_bracket = bracket
+                return super().end_headers()
+        return chess.pgn.SKIP

@@ -1,41 +1,6 @@
-"""
-Turns a raw Lichess PGN dump (optionally .zst-compressed) into
-a compact .npz file of (board_tensor, move_index) pairs,
-filtered down to one rating bucket.
-
-Usage:
-    python -m chess_data.prepare \
-        data/downloads/lichess_2024-06.pgn.zst \
-        data/processed/bucket_1000.npz \
-        --min-elo 900 --max-elo 1100 \
-        --max-games 200000
-
-Lichess dumps are large (a single month can be 30GB+ compressed). We stream
-through the file game-by-game rather than loading it into memory, and read
-directly out of the .zst stream so you never need to keep a decompressed
-copy on disk.
-
-Filtering happens header-first: a game's headers are enough to decide
-whether we want it (see chess_data.filters.FilteringGameBuilder), so games
-that don't pass the filter never have their movetext tokenized, SAN-parsed,
-or pushed onto a board -- only the (usually small minority of) games we
-actually keep pay that cost.
-
-CHUNKED PROCESSING (--skip-games / --max-games together): rather than
-processing an entire multi-million-game dump into one giant .npz (which
-costs a lot of RAM to train on later, .npz can never be truly memory-
-mapped regardless of compression), process it in slices and train
-incrementally across them instead -- see the root README's "chunked
-training" section. --skip-games N tells this script to fast-forward past
-the first N games (using the same cheap header-only read as the real
-filter, so skipping is fast even for a large N) before it starts actually
-processing the next --max-games games for this chunk.
-"""
-
 from __future__ import annotations
 
 import argparse
-import functools
 import io
 import os
 import tempfile
@@ -50,7 +15,12 @@ import zstandard as zstd
 from chess_shared import encode_board, move_to_index
 from tqdm import tqdm
 
-from chess_data.filters import FilteringGameBuilder
+from chess_data.brackets import DEFAULT_BRACKETS, EloBracket, brackets_by_name
+from chess_data.filters import MultiBucketGameBuilder
+
+
+class SourceExhaustedError(RuntimeError):
+    pass
 
 
 def _open_pgn_stream(path: Path) -> TextIO:
@@ -62,26 +32,17 @@ def _open_pgn_stream(path: Path) -> TextIO:
     return open(path, encoding="utf-8", errors="replace")
 
 
+class _TrackingVisitorFactory:
+    def __init__(self, brackets: list[EloBracket]) -> None:
+        self._brackets = brackets
+        self.last_instance: MultiBucketGameBuilder | None = None
+
+    def __call__(self) -> MultiBucketGameBuilder:
+        self.last_instance = MultiBucketGameBuilder(self._brackets)
+        return self.last_instance
+
+
 class _GrowableArrayStore:
-    """
-    Accumulates fixed-shape rows into a numpy array backed by an on-disk
-    memmap, instead of a Python list of arrays.
-
-    A Python list of tens of millions of small numpy arrays is expensive in
-    two ways: each array carries its own object overhead on top of its data,
-    and everything has to live in RAM at once, with a final np.stack() that
-    briefly needs a second, contiguous copy of the whole thing. Backing the
-    growing array with a memmap instead means the data mostly lives on disk
-    and is paged in by the OS as needed, so resident memory stays low no
-    matter how large the final dataset is.
-
-    Capacity grows by doubling (like a dynamic array): when full, a new,
-    larger backing file is allocated and the existing rows are copied over
-    via a memmap-to-memmap assignment (which streams through the page cache
-    rather than materializing in Python), then the old backing file is
-    dropped. This keeps the number of copies logarithmic in the final size.
-    """
-
     def __init__(
         self,
         row_shape: tuple[int, ...],
@@ -133,7 +94,6 @@ class _GrowableArrayStore:
         old_path.unlink(missing_ok=True)
 
     def finalized(self) -> np.ndarray:
-        """A memmap view trimmed to the rows actually written (no copy)."""
         self._array.flush()
         return self._array[: self._count]
 
@@ -147,13 +107,6 @@ def extract_positions(
     max_positions_per_game: int = 40,
     skip_first_n_plies: int = 6,
 ) -> list[tuple[np.ndarray, int]]:
-    """
-    Walk through a game's moves, yielding (board_before_move, move_played)
-    pairs. We skip the first few plies (book openings are memorized, not
-    "decided", and are the same across every rating band, so they carry
-    little signal about skill level) and cap positions per game so one very
-    long game can't dominate the dataset.
-    """
     positions = []
     board = game.board()
     for ply, move in enumerate(game.mainline_moves()):
@@ -165,137 +118,209 @@ def extract_positions(
     return positions
 
 
-def process_pgn(
+def process_chunk(
     pgn_path: Path,
-    out_path: Path,
-    min_elo: int,
-    max_elo: int,
-    max_games: int | None = None,
-    skip_games: int = 0,
+    out_dir: Path,
+    brackets: list[EloBracket],
+    chunk: int,
+    chunk_size: int,
     max_positions_per_game: int = 40,
     skip_first_n_plies: int = 6,
     log_every: int = 2000,
-    initial_capacity: int = 1_000_000,
-) -> None:
+    initial_capacity: int = 50_000,
+) -> dict[str, int]:
+    skip_games = (chunk - 1) * chunk_size
     games_seen = 0
-    games_kept = 0
 
-    visitor_factory = functools.partial(
-        FilteringGameBuilder, min_elo=min_elo, max_elo=max_elo
-    )
+    visitor_factory = _TrackingVisitorFactory(brackets)
 
-    if max_games is not None:
-        initial_capacity = max(
-            1, min(initial_capacity, max_games * max_positions_per_game)
-        )
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(
-        dir=out_path.parent, prefix=".prepare-tmp-"
+        dir=out_dir, prefix=".prepare-tmp-"
     ) as tmp_dir_name:
         tmp_dir = Path(tmp_dir_name)
-        moves_store = _GrowableArrayStore((), np.int64, initial_capacity, tmp_dir)
-        boards_store: _GrowableArrayStore | None = None
+        boards_stores: dict[str, _GrowableArrayStore] = {}
+        moves_stores: dict[str, _GrowableArrayStore] = {}
 
         with _open_pgn_stream(pgn_path) as f:
             if skip_games > 0:
                 skip_pbar = tqdm(
-                    total=skip_games, desc="skipping to chunk start", unit="game"
+                    total=skip_games,
+                    desc=f"chunk {chunk}: skipping to start",
+                    unit="game",
                 )
                 skipped = 0
                 while skipped < skip_games:
                     headers = chess.pgn.read_headers(f)
                     if headers is None:
                         skip_pbar.close()
-                        raise RuntimeError(
-                            f"skip_games={skip_games} but the file only has {skipped} games "
-                            "-- nothing left to process in this chunk."
+                        raise SourceExhaustedError(
+                            f"skip_games={skip_games} but the file only has {skipped} "
+                            f"games -- nothing left to process for chunk {chunk}."
                         )
                     skipped += 1
                     skip_pbar.update(1)
                 skip_pbar.close()
 
-            pbar = tqdm(desc=f"[{min_elo}-{max_elo}]", unit="game")
-            while True:
+            pbar = tqdm(desc=f"chunk {chunk}", unit="game", total=chunk_size)
+            while games_seen < chunk_size:
                 game = chess.pgn.read_game(f, Visitor=visitor_factory)
                 if game is None:
                     break
                 games_seen += 1
                 pbar.update(1)
 
-                if game.mainline_moves():
-                    games_kept += 1
+                matched_bracket = visitor_factory.last_instance.matched_bracket  # type: ignore[union-attr]
+                if matched_bracket is not None and game.mainline_moves():
+                    name = matched_bracket.name
                     for board_tensor, move_idx in extract_positions(
                         game, max_positions_per_game, skip_first_n_plies
                     ):
-                        if boards_store is None:
-                            boards_store = _GrowableArrayStore(
+                        if name not in boards_stores:
+                            boards_stores[name] = _GrowableArrayStore(
                                 board_tensor.shape,
                                 np.float32,
                                 initial_capacity,
                                 tmp_dir,
                             )
-                        boards_store.append(board_tensor)
-                        moves_store.append(move_idx)
+                            moves_stores[name] = _GrowableArrayStore(
+                                (), np.int64, initial_capacity, tmp_dir
+                            )
+                        boards_stores[name].append(board_tensor)
+                        moves_stores[name].append(move_idx)
 
                 if games_seen % log_every == 0:
-                    pbar.set_postfix(kept=games_kept, positions=moves_store.count)
-
-                if max_games is not None and games_seen >= max_games:
-                    break
+                    pbar.set_postfix(
+                        {name: s.count for name, s in moves_stores.items()}
+                    )
             pbar.close()
 
-        if boards_store is None or boards_store.count == 0:
-            raise RuntimeError(
-                f"No positions extracted. Scanned {games_seen} games, kept {games_kept}. "
-                "Check your elo range and that the PGN actually has rated standard games."
+        counts: dict[str, int] = {}
+        for bracket in brackets:
+            name = bracket.name
+            if name not in boards_stores or boards_stores[name].count == 0:
+                counts[name] = 0
+                continue
+
+            boards_view = boards_stores[name].finalized()
+            moves_view = moves_stores[name].finalized()
+            counts[name] = boards_stores[name].count
+
+            out_path = out_dir / f"bucket_{name}_{chunk}.npz"
+            np.savez_compressed(out_path, boards=boards_view, moves=moves_view)
+
+            boards_stores[name].cleanup()
+            moves_stores[name].cleanup()
+
+    return counts
+
+
+def prepare_all_chunks(
+    pgn_path: Path,
+    out_dir: Path,
+    brackets: list[EloBracket],
+    chunk_size: int,
+    max_chunks: int | None = None,
+    max_positions_per_game: int = 40,
+    skip_first_n_plies: int = 6,
+) -> None:
+    chunk = 1
+    totals: dict[str, int] = {b.name: 0 for b in brackets}
+
+    while True:
+        if max_chunks is not None and chunk > max_chunks:
+            print(f"\nreached --max-chunks={max_chunks}, stopping")
+            break
+
+        print(
+            f"\n=== chunk {chunk} "
+            f"(games {(chunk - 1) * chunk_size + 1}-{chunk * chunk_size}) ==="
+        )
+        try:
+            counts = process_chunk(
+                pgn_path,
+                out_dir,
+                brackets,
+                chunk,
+                chunk_size,
+                max_positions_per_game=max_positions_per_game,
+                skip_first_n_plies=skip_first_n_plies,
             )
+        except SourceExhaustedError as e:
+            print(f"{e}")
+            print(f"source exhausted after {chunk - 1} chunk(s) -- done")
+            break
 
-        boards_view = boards_store.finalized()
-        moves_view = moves_store.finalized()
-        n_positions = boards_store.count
-        boards_nbytes = boards_view.nbytes
-        moves_nbytes = moves_view.nbytes
+        for name, n in counts.items():
+            totals[name] += n
+            if n > 0:
+                print(f"  bucket_{name}_{chunk}.npz: {n} positions")
+            else:
+                print(
+                    f"  bucket_{name}: no matching games in this chunk, no file written"
+                )
 
-        np.savez_compressed(out_path, boards=boards_view, moves=moves_view)
+        chunk += 1
 
-        boards_store.cleanup()
-        moves_store.cleanup()
-
-    print(
-        f"done: kept {games_kept}/{games_seen} games "
-        f"-> {n_positions} positions -> {out_path} "
-        f"({boards_nbytes / 1e6:.1f}MB boards, {moves_nbytes / 1e6:.1f}MB moves)"
-    )
+    print("\n=== summary across all chunks ===")
+    for name, total in totals.items():
+        if total > 0:
+            print(f"  {name}: {total} total positions")
+        else:
+            print(
+                f"  {name}: 0 total positions -- WARNING: this bucket's elo range "
+                "never matched anything in the whole file, check its range in "
+                "chess_data/brackets.py"
+            )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("pgn_path", type=Path, help="Path to .pgn or .pgn.zst file")
-    parser.add_argument("out_path", type=Path, help="Path to write .npz output")
-    parser.add_argument("--min-elo", type=int, required=True)
-    parser.add_argument("--max-elo", type=int, required=True)
-    parser.add_argument("--max-games", type=int, default=None)
     parser.add_argument(
-        "--skip-games",
+        "out_dir",
+        type=Path,
+        help="Directory to write bucket_<name>_<chunk>.npz files into",
+    )
+    parser.add_argument(
+        "--chunk-size",
         type=int,
-        default=0,
-        help="Fast-forward past this many games before processing -- use to pull "
-        "successive chunks out of one big dump (e.g. chunk 2 of a 700k-game chunk "
-        "size: --skip-games 700000 --max-games 700000).",
+        required=True,
+        help="Games per chunk, scanned across ALL buckets together. Run "
+        "chess_data.count_games first if you want to know the total game "
+        "count before picking a value.",
+    )
+    parser.add_argument(
+        "--buckets",
+        type=str,
+        default=None,
+        help="Comma-separated bucket names to build (default: all -- "
+        + ",".join(b.name for b in DEFAULT_BRACKETS)
+        + ").",
+    )
+    parser.add_argument(
+        "--max-chunks",
+        type=int,
+        default=None,
+        help="Stop after this many chunks (useful for a quick sample run instead "
+        "of processing the whole file; default: process until exhausted).",
     )
     parser.add_argument("--max-positions-per-game", type=int, default=40)
     parser.add_argument("--skip-first-n-plies", type=int, default=6)
     args = parser.parse_args()
 
-    process_pgn(
+    bucket_names = args.buckets.split(",") if args.buckets else None
+    brackets = brackets_by_name(bucket_names)
+
+    prepare_all_chunks(
         args.pgn_path,
-        args.out_path,
-        args.min_elo,
-        args.max_elo,
-        max_games=args.max_games,
-        skip_games=args.skip_games,
+        args.out_dir,
+        brackets,
+        chunk_size=args.chunk_size,
+        max_chunks=args.max_chunks,
         max_positions_per_game=args.max_positions_per_game,
         skip_first_n_plies=args.skip_first_n_plies,
     )

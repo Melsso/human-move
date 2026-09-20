@@ -1,4 +1,4 @@
-.PHONY: test lint format typecheck check sync reset prepare-1 prepare-2 prepare-3 train-1000 train-1500 train-2000 play serve prepare-chunk train-chunk
+.PHONY: test lint format typecheck check sync reset play serve prepare train count-games
 
 EPOCHS ?= 10
 
@@ -28,63 +28,19 @@ check: sync
 	uv run --all-packages mypy
 	uv run --all-packages pytest -v
 
-prepare-1: sync
+count-games: sync
+	uv run --package chess-data python -m chess_data.count_games $(SOURCE)
+
+prepare: sync
 	uv run --package chess-data python -m chess_data.prepare \
-		data/downloads/sample.pgn.zst \
-		data/processed/sample_bucket_1000.npz \
-		--min-elo 900 --max-elo 1100 \
-		--max-games 300000
+		$(SOURCE) \
+		data/processed \
+		--chunk-size $(CHUNK_SIZE) \
+		$(if $(BUCKETS),--buckets $(BUCKETS),) \
+		$(if $(MAX_CHUNKS),--max-chunks $(MAX_CHUNKS),)
 
-prepare-2: sync
-	uv run --package chess-data python -m chess_data.prepare \
-		data/downloads/sample.pgn.zst \
-		data/processed/sample_bucket_1500.npz \
-		--min-elo 1400 --max-elo 1600 \
-		--max-games 300000
-
-prepare-3: sync
-	uv run --package chess-data python -m chess_data.prepare \
-		data/downloads/sample.pgn.zst \
-		data/processed/sample_bucket_2000.npz \
-		--min-elo 1900 --max-elo 2100 \
-		--max-games 300000
-
-train-1000: sync
-	uv run --package chess-training python -m chess_training.train \
-		data/processed/bucket_1000.npz \
-		--out-dir training/checkpoints/bucket_1000 \
-		--epochs 10 --batch-size 256 --lr 1e-3
-
-train-1500: sync
-	uv run --package chess-training python -m chess_training.train \
-		data/processed/bucket_1500.npz \
-		--out-dir training/checkpoints/bucket_1500 \
-		--epochs 10 --batch-size 256 --lr 1e-3
-
-train-2000: sync
-	uv run --package chess-training python -m chess_training.train \
-		data/processed/bucket_2000.npz \
-		--out-dir training/checkpoints/bucket_2000 \
-		--epochs 10 --batch-size 256 --lr 1e-3
-
-# usage: make play CHECKPOINT=training/checkpoints/bucket_1000/best.pt
-play: sync
-	uv run --package chess-training python -m chess_training.play $(CHECKPOINT)
+train: sync
+	bash scripts/train_all_chunks.sh "$(BUCKETS)" "$(EPOCHS)"
 
 serve: sync
 	uv run --package chess-backend uvicorn chess_backend.main:app --reload --port 8000
-
-prepare-chunk: sync
-	uv run --package chess-data python -m chess_data.prepare \
-		$(SOURCE) \
-		data/processed/bucket_$(BUCKET)_$(CHUNK).npz \
-		--min-elo $(MIN_ELO) --max-elo $(MAX_ELO) \
-		--skip-games $$(( ($(CHUNK) - 1) * $(CHUNK_SIZE) )) \
-		--max-games $(CHUNK_SIZE)
-
-train-chunk: sync
-	uv run --package chess-training python -m chess_training.train \
-		data/processed/bucket_$(BUCKET)_$(CHUNK).npz \
-		--out-dir training/checkpoints/bucket_$(BUCKET)_$(CHUNK) \
-		--epochs $(EPOCHS) --batch-size 256 --lr 1e-3 \
-		$(if $(RESUME_FROM),--resume-from $(RESUME_FROM),)

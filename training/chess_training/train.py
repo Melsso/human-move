@@ -1,30 +1,3 @@
-"""
-Trains one rating-bucket policy network on the .npz produced by
-`chess_data.prepare`.
-
-Usage:
-    python -m chess_training.train \
-        ../data/processed/bucket_1000.npz \
-        --out-dir checkpoints/bucket_1000 \
-        --epochs 10 --batch-size 256 --lr 1e-3
-
-CHUNKED / INCREMENTAL TRAINING (--resume-from): if your dataset was too
-big to process in one go (see chess_data.prepare's --skip-games), you can
-train on it one chunk at a time instead -- train on chunk 1's .npz for a
-few epochs, then train on chunk 2's .npz with `--resume-from` pointing at
-chunk 1's checkpoint, and so on. The model architecture (num_blocks/
-num_filters) and epoch numbering are both picked up automatically from the
-checkpoint you resume from, so epoch counts stay cumulative across chunks
-(chunk 2 continues from wherever chunk 1 left off) and checkpoint files
-across chunks never collide even if you reuse the same --out-dir.
-
-What this script does NOT do (yet, on purpose): tune hyperparameters for
-you, early-stop, or run the elo-calibration eval against Stockfish -- that
-comes next, once we've confirmed this loop actually converges on your real
-data. Get one bucket training and the loss/accuracy curves looking sane
-before running all three.
-"""
-
 from __future__ import annotations
 
 import argparse

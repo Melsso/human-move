@@ -46,6 +46,8 @@ Run a package's code or tests via `uv run --package <name> ...`:
 ```bash
 uv run --package chess-shared pytest shared/tests/ -v
 uv run --package chess-data pytest data/tests/ -v
+uv run --package chess-training pytest training/tests/ -v
+uv run --package chess-backend pytest backend/tests/ -v
 uv run --package chess-data python -m chess_data.prepare ...
 ```
 
@@ -59,12 +61,8 @@ project and silently uninstalls `chess-data`/`chess-shared` and their
 dependencies — that's expected `uv` behavior for a multi-package workspace,
 not a bug, but it's easy to trigger by habit. Every Makefile target
 depends on `sync` (which always passes `--all-packages`), so `make test`,
-`make prepare-1`, etc. self-heal regardless of what ran before them. If
+`make prepare`, etc. self-heal regardless of what ran before them. If
 you ever do need a raw command, always add `--all-packages`.
-
-When `training`/`backend` get built, add them to `[tool.uv.workspace]
-members` in the root `pyproject.toml` and run `uv sync --all-packages`
-again.
 
 ## Status
 
@@ -79,11 +77,13 @@ again.
       (`training/tests/`). `chess_training.play` lets you play a game
       against a checkpoint right in the terminal. Elo calibration against
       Stockfish is not built yet.
-- [x] `backend` — FastAPI service (`chess_backend`) that discovers every
-      `training/checkpoints/<tier>/best.pt`, loads/caches models lazily,
-      and exposes `/api/tiers` + `/api/move`. Also serves the static
-      frontend at `/` from the same process (no CORS setup needed for a
-      local project like this). Fully tested (`backend/tests/`) with
+- [x] `backend` — FastAPI service (`chess_backend`) that discovers
+      checkpoints under `training/checkpoints/`, grouping chunked-training
+      directories (`bucket_<name>_<chunk>`) by name and exposing only the
+      most-trained (highest) chunk per bucket as a clean tier, loads/caches
+      models lazily, and exposes `/api/tiers` + `/api/move`. Also serves the
+      static frontend at `/` from the same process (no CORS setup needed
+      for a local project like this). Fully tested (`backend/tests/`) with
       synthetic checkpoints, and smoke-tested end to end (boot the server,
       hit every route with curl) before being handed off.
 - [x] `frontend` — single-page board UI at `backend/static/index.html`
@@ -98,10 +98,13 @@ make serve
 # then open http://127.0.0.1:8000 in a browser
 ```
 
-The tier dropdown is populated from whatever's actually sitting in
-`training/checkpoints/*/best.pt` — no hardcoded tier names, so it reflects
-whatever you've actually trained, under whatever directory names you
-happened to use.
+The tier dropdown is populated from whatever's actually sitting under
+`training/checkpoints/` — `bucket_<name>_<chunk>` directories (what
+chunked training via `make train` produces) are grouped by `<name>`, so
+you see one clean "1000"/"1500"/"2000" entry per bucket pointing at its
+most-trained chunk, not a confusing list of every individual chunk. A
+directory that doesn't match that pattern still shows up as its own
+tier, unchanged.
 
 ## Day-to-day commands
 
@@ -118,16 +121,79 @@ make reset            # rm -rf .venv + uv cache clean + fresh sync -- use this i
                        # after a sync; it's a known venv-corruption pattern, not a
                        # code bug, and this is the reliable fix
 
-make prepare-1 / prepare-2 / prepare-3   # rebuild the sample rating buckets
-make train-1000 / train-1500 / train-2000   # train each rating tier
-make play CHECKPOINT=training/checkpoints/bucket_1000/best.pt   # play a game vs a checkpoint (terminal)
+make count-games SOURCE=data/downloads/lichess_2024-06.pgn.zst   # see below
+make prepare SOURCE=... CHUNK_SIZE=700000                         # see below
+make train                                                         # see below
+make play CHECKPOINT=training/checkpoints/bucket_1000_1/best.pt   # play a game vs a checkpoint (terminal)
 make serve            # FastAPI backend + board UI at http://127.0.0.1:8000
 ```
 
-`train-*` targets assume your real, full-size buckets are at
-`data/processed/bucket_1000.npz` etc (not the small `sample_bucket_*.npz`
-files `prepare-*` produces) — adjust the paths in the Makefile if yours are
-named differently.
+### Makefile variables
+
+| Variable | Used by | Default | Meaning |
+|---|---|---|---|
+| `SOURCE` | `count-games`, `prepare` | required | Path to the `.pgn`/`.pgn.zst` source dump |
+| `CHUNK_SIZE` | `prepare` | required | Games scanned per chunk, across all buckets together |
+| `BUCKETS` | `prepare`, `train` | all buckets | Comma-separated bucket names, e.g. `1000,2000` — see `data/chess_data/brackets.py` |
+| `MAX_CHUNKS` | `prepare` | none (process until exhausted) | Stop after this many chunks — useful for a quick sample run |
+| `EPOCHS` | `train` | `10` | Epochs trained per chunk |
+| `CHECKPOINT` | `play` | required | Path to a `.pt` checkpoint |
+
+## Processing a full Lichess dump (chunked, all buckets in one pass)
+
+A full monthly Lichess dump is 30GB+ compressed, and one giant bucket
+`.npz` built from it can easily be several GB in RAM — `.npz` can never
+be memory-mapped (not even uncompressed; see `chess_training/dataset.py`'s
+docstring), so the whole thing loads into RAM every time you train on it.
+So instead of one giant file per bucket, `chess_data.prepare` builds
+every bucket in small chunks, and `chess_training.train` trains through
+them incrementally, picking up where the last chunk left off.
+
+**One pass processes every bucket together.** The expensive part of
+handling a 30GB+ dump is reading and decompressing it at all — once
+you're streaming through it, checking a game's headers against three elo
+ranges instead of one costs almost nothing extra. So `make prepare` reads
+the source file exactly ONCE and builds the 1000/1500/2000 buckets
+simultaneously, rather than three separate full passes over the same
+data.
+
+```bash
+# optional: see how many games are in the dump, to help pick a chunk size
+make count-games SOURCE=data/downloads/lichess_2024-06.pgn.zst
+
+# processes the WHOLE file in one command, building every bucket at once,
+# in chunks of 700,000 games each
+make prepare SOURCE=data/downloads/lichess_2024-06.pgn.zst CHUNK_SIZE=700000
+
+# only build specific buckets (still one pass over the source):
+make prepare SOURCE=... CHUNK_SIZE=700000 BUCKETS=1000,2000
+```
+
+That produces `data/processed/bucket_1000_1.npz`, `bucket_1000_2.npz`,
+..., `bucket_1500_1.npz`, `bucket_2000_1.npz`, etc — one file per
+(bucket, chunk) pair, for every chunk until the source is exhausted. A
+bucket with zero matching games in a particular chunk simply doesn't get
+a file for that chunk (not an error — some chunks may have none of a
+narrow elo range by chance).
+
+**Only delete the source file once every bucket you want has actually
+been built from it.** Since `make prepare` already builds every bucket in
+one run, that's normally just "after this one command finishes" — no
+need to keep it around across separate per-bucket runs the way an
+earlier, less efficient design would have required.
+
+```bash
+make train                          # trains every bucket found under data/processed/
+make train BUCKETS=1000,2000        # just these two
+make train EPOCHS=5                 # epochs per chunk (default 10)
+```
+
+`make train` auto-discovers every bucket's chunk files, sorts them
+numerically, and trains through them in order — chunk 2 resumes from
+chunk 1's checkpoint automatically (architecture and cumulative epoch
+numbering are read from the checkpoint itself, not re-specified), same
+for chunk 3 from chunk 2, and so on. It prints each bucket's final
+checkpoint path when done; point `make play`/`make serve` at that.
 
 ## Running tests
 
@@ -137,4 +203,12 @@ make test
 uv run --package chess-shared pytest shared/tests/ -v
 uv run --package chess-data pytest data/tests/ -v
 uv run --package chess-training pytest training/tests/ -v
+uv run --package chess-backend pytest backend/tests/ -v
 ```
+
+## Per-package documentation
+
+Each package has its own README with a full command/flag reference:
+[`shared/README.md`](shared/README.md), [`data/README.md`](data/README.md),
+[`training/README.md`](training/README.md),
+[`backend/README.md`](backend/README.md).

@@ -8,14 +8,14 @@ from chess_training.model import MaiaPolicyNet
 
 
 def _write_synthetic_checkpoint(
-    path: Path, num_blocks: int = 2, num_filters: int = 8
+    path: Path, num_blocks: int = 2, num_filters: int = 8, epoch: int = 3
 ) -> None:
     model = MaiaPolicyNet(
         NUM_PLANES, NUM_MOVES, num_blocks=num_blocks, num_filters=num_filters
     )
     checkpoint = {
         "model_state_dict": model.state_dict(),
-        "epoch": 3,
+        "epoch": epoch,
         "val_top1": 0.31,
         "val_top3": 0.55,
         "num_blocks": num_blocks,
@@ -54,6 +54,58 @@ def test_discover_tiers_ignores_directories_without_best_pt(tmp_path: Path):
 def test_discover_tiers_on_missing_directory_returns_empty(tmp_path: Path):
     registry = ModelRegistry(tmp_path / "does_not_exist")
     assert registry.discover_tiers() == {}
+
+
+def test_discover_tiers_groups_chunked_directories_picking_highest_chunk(
+    tmp_path: Path,
+):
+    checkpoints_dir = tmp_path / "checkpoints"
+    for chunk, epoch in [(1, 10), (2, 20), (3, 30)]:
+        d = checkpoints_dir / f"bucket_1000_{chunk}"
+        d.mkdir(parents=True)
+        _write_synthetic_checkpoint(d / "best.pt", epoch=epoch)
+
+    registry = ModelRegistry(checkpoints_dir)
+    tiers = registry.discover_tiers()
+
+    assert set(tiers.keys()) == {"1000"}
+    assert tiers["1000"] == checkpoints_dir / "bucket_1000_3" / "best.pt"
+
+    meta = registry.get_meta("1000")
+    assert meta["epoch"] == 30
+
+
+def test_discover_tiers_handles_chunk_numbers_out_of_lexicographic_order(
+    tmp_path: Path,
+):
+    checkpoints_dir = tmp_path / "checkpoints"
+    for chunk in [2, 9, 10]:
+        d = checkpoints_dir / f"bucket_1000_{chunk}"
+        d.mkdir(parents=True)
+        _write_synthetic_checkpoint(d / "best.pt", epoch=chunk * 10)
+
+    registry = ModelRegistry(checkpoints_dir)
+    tiers = registry.discover_tiers()
+    assert tiers["1000"] == checkpoints_dir / "bucket_1000_10" / "best.pt"
+
+
+def test_discover_tiers_mixes_chunked_and_standalone_directories(tmp_path: Path):
+    checkpoints_dir = tmp_path / "checkpoints"
+    for chunk in [1, 2]:
+        d = checkpoints_dir / f"bucket_1000_{chunk}"
+        d.mkdir(parents=True)
+        _write_synthetic_checkpoint(d / "best.pt", epoch=chunk)
+
+    standalone_dir = checkpoints_dir / "my_custom_experiment"
+    standalone_dir.mkdir(parents=True)
+    _write_synthetic_checkpoint(standalone_dir / "best.pt", epoch=99)
+
+    registry = ModelRegistry(checkpoints_dir)
+    tiers = registry.discover_tiers()
+
+    assert set(tiers.keys()) == {"1000", "my_custom_experiment"}
+    assert tiers["1000"] == checkpoints_dir / "bucket_1000_2" / "best.pt"
+    assert tiers["my_custom_experiment"] == standalone_dir / "best.pt"
 
 
 def test_get_model_loads_and_caches(tmp_path: Path):
