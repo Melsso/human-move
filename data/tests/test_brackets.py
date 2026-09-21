@@ -1,4 +1,4 @@
-from itertools import pairwise
+import itertools
 
 import pytest
 from chess_data.brackets import DEFAULT_BRACKETS, EloBracket, brackets_by_name
@@ -37,7 +37,7 @@ def test_default_brackets_names_are_unique() -> None:
 
 def test_default_brackets_ranges_are_non_overlapping() -> None:
     sorted_brackets = sorted(DEFAULT_BRACKETS, key=lambda b: b.min_elo)
-    for a, b in pairwise(sorted_brackets):
+    for a, b in itertools.pairwise(sorted_brackets):
         assert a.max_elo < b.min_elo, f"{a} and {b} overlap"
 
 

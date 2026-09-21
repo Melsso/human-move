@@ -1,4 +1,4 @@
-.PHONY: test lint format typecheck check sync reset play serve prepare train count-games
+.PHONY: test lint format typecheck check sync reset play serve prepare train count-games eval-stockfish eval-round-robin
 
 EPOCHS ?= 10
 
@@ -44,3 +44,14 @@ train: sync
 
 serve: sync
 	uv run --package chess-backend uvicorn chess_backend.main:app --reload --port 8000
+
+eval-stockfish: sync
+	uv run --package chess-eval python -m chess_eval.stockfish $(TIER) \
+		$(if $(STOCKFISH_ELOS),--stockfish-elos $(STOCKFISH_ELOS),) \
+		$(if $(GAMES),--games $(GAMES),) \
+		--out eval/results/$(TIER)_stockfish.json
+
+eval-round-robin: sync
+	uv run --package chess-eval python -m chess_eval.round_robin $(TIERS) \
+		$(if $(GAMES),--games $(GAMES),) \
+		--out eval/results/round_robin.json

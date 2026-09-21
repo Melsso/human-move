@@ -1,9 +1,3 @@
-"""
-Discovers trained checkpoints, loads/caches them, and computes a single
-model move for a position. Kept separate from `main.py`'s route handlers
-so this logic is directly unit-testable without going through HTTP.
-"""
-
 from __future__ import annotations
 
 import re

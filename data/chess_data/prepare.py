@@ -24,7 +24,6 @@ class SourceExhaustedError(RuntimeError):
 
 
 def _open_pgn_stream(path: Path) -> TextIO:
-    """Return a text-mode file-like object, transparently decompressing .zst."""
     if path.suffix == ".zst":
         dctx = zstd.ZstdDecompressor()
         stream_reader = dctx.stream_reader(path.open("rb"))

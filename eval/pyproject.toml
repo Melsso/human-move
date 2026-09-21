@@ -1,0 +1,25 @@
+[build-system]
+requires = ["uv_build>=0.9.0,<0.12"]
+build-backend = "uv_build"
+
+[project]
+name = "chess-eval"
+version = "0.1.0"
+description = "Evaluates trained rating-bucket models: Stockfish Elo calibration and inter-bucket round robin."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "chess-shared",
+    "chess-training",
+    "chess-backend",
+    "python-chess>=1.999",
+]
+
+[tool.uv.sources]
+chess-shared = { workspace = true }
+chess-training = { workspace = true }
+chess-backend = { workspace = true }
+
+[tool.uv.build-backend]
+module-root = ""
+module-name = "chess_eval"

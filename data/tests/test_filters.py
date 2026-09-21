@@ -113,13 +113,6 @@ def test_rejects_out_of_range_elo() -> None:
 
 
 def test_headers_only_and_full_parse_agree_on_every_sample_game() -> None:
-    """
-    The whole point of the headers-only fast path (chess.pgn.read_headers)
-    is that it must make IDENTICAL keep/reject decisions to a full
-    chess.pgn.read_game parse -- otherwise the speedup silently changes
-    which games end up in the training set. Check every sample game both
-    ways and confirm they agree.
-    """
     samples = [
         RATED_GOOD_GAME,
         CASUAL_GAME,
@@ -145,11 +138,6 @@ BRACKET_2000 = EloBracket("2000", 1900, 2100)
 
 
 def test_multi_bucket_game_builder_matches_the_correct_bracket() -> None:
-    """
-    A game whose average elo (1015) falls in the 1000 bracket's range,
-    checked against all three brackets at once, should match 1000 and
-    NONE of the others.
-    """
     builder = MultiBucketGameBuilder([BRACKET_1000, BRACKET_1500, BRACKET_2000])
     game = chess.pgn.read_game(io.StringIO(RATED_GOOD_GAME), Visitor=lambda: builder)
     assert game is not None
@@ -157,11 +145,6 @@ def test_multi_bucket_game_builder_matches_the_correct_bracket() -> None:
 
 
 def test_multi_bucket_game_builder_skips_when_no_bracket_matches() -> None:
-    """
-    A game whose elo doesn't fall in ANY of the given brackets should be
-    skipped (no moves parsed), same fast-path behavior as the
-    single-bracket version.
-    """
     builder = MultiBucketGameBuilder([BRACKET_1500, BRACKET_2000])
     game = chess.pgn.read_game(io.StringIO(RATED_GOOD_GAME), Visitor=lambda: builder)
     assert game is not None
@@ -183,9 +166,7 @@ def test_multi_bucket_game_builder_rejects_bot_and_casual_regardless_of_brackets
 ):
     for pgn_text in [BOT_GAME, CASUAL_GAME, ABANDONED_GAME]:
         builder = MultiBucketGameBuilder([BRACKET_1000, BRACKET_1500, BRACKET_2000])
-        game = chess.pgn.read_game(
-            io.StringIO(pgn_text), Visitor=lambda builder=builder: builder
-        )
+        game = chess.pgn.read_game(io.StringIO(pgn_text), Visitor=lambda b=builder: b)
         assert game is not None
         assert builder.matched_bracket is None
         assert list(game.mainline_moves()) == []

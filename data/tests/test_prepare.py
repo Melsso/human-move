@@ -30,8 +30,8 @@ SAMPLE_PGN = """\
 [Event "Rated Blitz game"]
 [White "c"]
 [Black "d"]
-[WhiteElo "1900"]
-[BlackElo "1950"]
+[WhiteElo "2250"]
+[BlackElo "2290"]
 [Termination "Normal"]
 
 1. d4 d5 2. c4 e6 3. Nc3 Nf6 4. Bg5 Be7 5. e3 O-O 6. Nf3 h6 0-1
@@ -48,7 +48,6 @@ SAMPLE_PGN = """\
 
 
 def _make_larger_pgn(n_repeats: int) -> str:
-    """Repeats SAMPLE_PGN's three-game block to build a bigger synthetic corpus."""
     return SAMPLE_PGN * n_repeats
 
 

@@ -13,8 +13,8 @@ class EloBracket:
 
 DEFAULT_BRACKETS: tuple[EloBracket, ...] = (
     EloBracket("1000", 1000, 1300),
-    EloBracket("1500", 1301, 1600),
-    EloBracket("2000", 2000, 2400),
+    EloBracket("1500", 1600, 1900),
+    EloBracket("2000", 2200, 2500),
 )
 
 

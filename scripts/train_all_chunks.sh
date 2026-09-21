@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
+
 set -uo pipefail
 
 BUCKETS="${1:-}"
 EPOCHS="${2:-10}"
+FORCE="${3:-}"
+BATCH_SIZE="${BATCH_SIZE:-1024}"
+LR="${LR:-2e-3}"
+TRAIN_FLAGS="${TRAIN_FLAGS:-}"
 
 make sync
 
@@ -21,6 +26,9 @@ if [ -z "$bucket_list" ]; then
 fi
 
 echo "training buckets: $(echo "$bucket_list" | tr '\n' ' ')"
+if [ "$FORCE" = "force" ]; then
+    echo "FORCE mode: retraining every chunk from scratch, ignoring any existing checkpoints"
+fi
 
 any_bucket_trained=0
 
@@ -44,15 +52,23 @@ for bucket in $bucket_list; do
     for chunk in $chunk_numbers; do
         npz="data/processed/bucket_${bucket}_${chunk}.npz"
         out_dir="training/checkpoints/bucket_${bucket}_${chunk}"
+        checkpoint="$out_dir/best.pt"
+
+        if [ "$FORCE" != "force" ] && [ -f "$checkpoint" ]; then
+            echo ""
+            echo "=== bucket $bucket, chunk $chunk: already has $checkpoint, skipping training (resuming from it) ==="
+            resume_arg="--resume-from $checkpoint"
+            last_checkpoint="$checkpoint"
+            continue
+        fi
 
         echo ""
         echo "=== bucket $bucket, chunk $chunk ==="
         uv run --package chess-training python -m chess_training.train \
             "$npz" --out-dir "$out_dir" \
-            --epochs "$EPOCHS" --batch-size 256 --lr 1e-3 \
-            $resume_arg
+            --epochs "$EPOCHS" --batch-size "$BATCH_SIZE" --lr "$LR" \
+            $TRAIN_FLAGS $resume_arg
 
-        checkpoint="$out_dir/best.pt"
         if [ ! -f "$checkpoint" ]; then
             echo "error: expected $checkpoint to exist after training bucket $bucket chunk $chunk, aborting" >&2
             exit 1

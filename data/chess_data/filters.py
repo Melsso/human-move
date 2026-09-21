@@ -18,7 +18,7 @@ def should_keep_game(
     headers: chess.pgn.Headers,
     min_elo: int,
     max_elo: int,
-    max_elo_gap: int = 200,
+    max_elo_gap: int = 100,
 ) -> bool:
     if headers.get("Variant", "Standard") != "Standard":
         return False

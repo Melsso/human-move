@@ -49,11 +49,6 @@ def test_select_move_index_greedy_picks_argmax():
 
 
 def test_select_move_index_never_picks_a_zero_probability_move():
-    """
-    The property that actually matters end to end: whatever this returns,
-    it should never be a move the mask said was illegal, across many
-    random legal-move subsets and both greedy and sampled selection.
-    """
     rng = np.random.default_rng(2)
     board = chess.Board()
     mask = legal_move_mask(board)
@@ -89,12 +84,6 @@ def test_top_k_moves_handles_fewer_nonzero_than_k():
 
 
 def test_full_pipeline_on_real_position_produces_a_legal_move():
-    """
-    End-to-end sanity check using real board/move encoding, not synthetic
-    indices: from a real position, with random model logits standing in
-    for an untrained model, the final selected move must decode back into
-    something python-chess itself considers legal.
-    """
     from chess_shared.move_encoding import index_to_move
 
     board = chess.Board()

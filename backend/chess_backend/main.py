@@ -1,13 +1,3 @@
-"""
-Run with: uv run --package chess-backend uvicorn chess_backend.main:app --reload
-(or `make serve`, which does exactly that).
-
-Serves the API under /api/* AND the static frontend at / from the same
-process on the same port -- deliberately avoiding a separate frontend dev
-server, so there's no CORS configuration to get wrong for a local-only
-project like this.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path

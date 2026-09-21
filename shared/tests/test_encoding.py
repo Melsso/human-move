@@ -23,7 +23,7 @@ def test_side_to_move_flips_after_a_move() -> None:
     board = chess.Board()
     board.push_san("e4")
     tensor = encode_board(board)
-    assert np.all(tensor[12] == 0.0)  # now black to move
+    assert np.all(tensor[12] == 0.0)
 
 
 def test_castling_rights_reflected() -> None:
