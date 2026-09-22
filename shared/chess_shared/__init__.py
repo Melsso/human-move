@@ -5,6 +5,7 @@ from chess_shared.move_encoding import (
     index_to_move,
     legal_move_mask,
     move_to_index,
+    perspective_move_to_index,
 )
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "legal_move_mask",
     "masked_softmax",
     "move_to_index",
+    "perspective_move_to_index",
     "select_move_index",
     "top_k_moves",
 ]

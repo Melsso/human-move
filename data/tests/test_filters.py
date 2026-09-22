@@ -9,7 +9,7 @@ from chess_data.filters import (
 )
 
 RATED_GOOD_GAME = """\
-[Event "Rated Blitz game"]
+[Event "Rated Rapid game"]
 [White "playerA"]
 [Black "playerB"]
 [WhiteElo "1050"]

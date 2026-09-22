@@ -91,6 +91,26 @@ def train(
         resume_checkpoint = torch.load(
             resume_from, map_location="cpu", weights_only=True
         )
+
+        ckpt_planes = resume_checkpoint.get("in_planes")
+        ckpt_moves = resume_checkpoint.get("num_moves")
+        if ckpt_planes is not None and ckpt_planes != NUM_PLANES:
+            raise ValueError(
+                f"checkpoint '{resume_from}' was trained with in_planes="
+                f"{ckpt_planes}, but the current board encoding uses "
+                f"NUM_PLANES={NUM_PLANES}. This checkpoint predates a board "
+                "encoding change and can't be resumed -- train fresh on data "
+                "built with the current chess_data.prepare instead."
+            )
+        if ckpt_moves is not None and ckpt_moves != NUM_MOVES:
+            raise ValueError(
+                f"checkpoint '{resume_from}' was trained with num_moves="
+                f"{ckpt_moves}, but the current move encoding uses "
+                f"NUM_MOVES={NUM_MOVES}. This checkpoint predates a move "
+                "encoding change and can't be resumed -- train fresh on data "
+                "built with the current chess_data.prepare instead."
+            )
+
         num_blocks = resume_checkpoint["num_blocks"]
         num_filters = resume_checkpoint["num_filters"]
         resumed_state_dict = resume_checkpoint["model_state_dict"]
@@ -185,6 +205,8 @@ def train(
             "val_top3": val_top3,
             "num_blocks": num_blocks,
             "num_filters": num_filters,
+            "in_planes": NUM_PLANES,
+            "num_moves": NUM_MOVES,
         }
         torch.save(checkpoint, out_dir / "last.pt")
         if save_every_epoch:

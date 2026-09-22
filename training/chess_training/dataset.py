@@ -68,18 +68,31 @@ def make_train_val_split(
             stacklevel=2,
         )
 
+    game_ids = data["game_ids"]
+
     if compact_boards and boards.dtype == np.float32:
         boards = boards.astype(np.float16)
 
     boards_t = torch.from_numpy(np.ascontiguousarray(boards))
     moves_t = torch.from_numpy(np.ascontiguousarray(moves).astype(np.int64))
 
-    n = boards_t.shape[0]
+    unique_games = np.unique(game_ids)
     rng = np.random.default_rng(seed)
-    perm = torch.from_numpy(rng.permutation(n))
-    n_val = max(1, int(n * val_fraction))
-    val_indices = perm[:n_val]
-    train_indices = perm[n_val:]
+    shuffled_games = rng.permutation(unique_games)
+    n_val_games = max(1, int(len(unique_games) * val_fraction))
+    val_game_ids = shuffled_games[:n_val_games]
+
+    is_val = np.isin(game_ids, val_game_ids)
+    val_indices = torch.from_numpy(np.nonzero(is_val)[0])
+    train_indices = torch.from_numpy(np.nonzero(~is_val)[0])
+
+    print(
+        f"  split: {len(unique_games)} games "
+        f"({len(unique_games) - n_val_games} train / {n_val_games} val) -> "
+        f"{len(train_indices)} train positions / {len(val_indices)} val positions "
+        f"({len(val_indices) / (len(train_indices) + len(val_indices)):.1%} val by "
+        "position -- may differ a bit from val_fraction since games vary in length)"
+    )
 
     train_loader = InMemoryBatchLoader(
         boards_t,

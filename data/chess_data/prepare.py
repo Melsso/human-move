@@ -12,7 +12,7 @@ import chess.pgn
 import numpy as np
 import numpy.typing as npt
 import zstandard as zstd
-from chess_shared import encode_board, move_to_index
+from chess_shared import encode_board, perspective_move_to_index
 from tqdm import tqdm
 
 from chess_data.brackets import DEFAULT_BRACKETS, EloBracket, brackets_by_name
@@ -103,18 +103,24 @@ class _GrowableArrayStore:
 
 def extract_positions(
     game: chess.pgn.Game,
-    max_positions_per_game: int = 40,
-    skip_first_n_plies: int = 6,
+    max_positions_per_game: int = 60,
+    skip_first_n_plies: int = 10,
 ) -> list[tuple[np.ndarray, int]]:
-    positions = []
     board = game.board()
+    candidates: list[tuple[np.ndarray, int]] = []
     for ply, move in enumerate(game.mainline_moves()):
         if ply >= skip_first_n_plies:
-            positions.append((encode_board(board), move_to_index(move)))
-            if len(positions) >= max_positions_per_game:
-                break
+            board_tensor = encode_board(board)
+            move_idx = perspective_move_to_index(move, board.turn)
+            candidates.append((board_tensor, move_idx))
         board.push(move)
-    return positions
+
+    if len(candidates) <= max_positions_per_game:
+        return candidates
+
+    sample_positions = np.linspace(0, len(candidates) - 1, num=max_positions_per_game)
+    sample_indices = np.unique(sample_positions.round().astype(int))
+    return [candidates[i] for i in sample_indices]
 
 
 def process_chunk(
@@ -123,8 +129,8 @@ def process_chunk(
     brackets: list[EloBracket],
     chunk: int,
     chunk_size: int,
-    max_positions_per_game: int = 40,
-    skip_first_n_plies: int = 6,
+    max_positions_per_game: int = 60,
+    skip_first_n_plies: int = 10,
     log_every: int = 2000,
     initial_capacity: int = 50_000,
 ) -> dict[str, int]:
@@ -141,6 +147,7 @@ def process_chunk(
         tmp_dir = Path(tmp_dir_name)
         boards_stores: dict[str, _GrowableArrayStore] = {}
         moves_stores: dict[str, _GrowableArrayStore] = {}
+        game_id_stores: dict[str, _GrowableArrayStore] = {}
 
         with _open_pgn_stream(pgn_path) as f:
             if skip_games > 0:
@@ -173,6 +180,7 @@ def process_chunk(
                 matched_bracket = visitor_factory.last_instance.matched_bracket  # type: ignore[union-attr]
                 if matched_bracket is not None and game.mainline_moves():
                     name = matched_bracket.name
+                    global_game_id = skip_games + games_seen
                     for board_tensor, move_idx in extract_positions(
                         game, max_positions_per_game, skip_first_n_plies
                     ):
@@ -186,8 +194,12 @@ def process_chunk(
                             moves_stores[name] = _GrowableArrayStore(
                                 (), np.int64, initial_capacity, tmp_dir
                             )
+                            game_id_stores[name] = _GrowableArrayStore(
+                                (), np.int64, initial_capacity, tmp_dir
+                            )
                         boards_stores[name].append(board_tensor)
                         moves_stores[name].append(move_idx)
+                        game_id_stores[name].append(global_game_id)
 
                 if games_seen % log_every == 0:
                     pbar.set_postfix(
@@ -204,13 +216,20 @@ def process_chunk(
 
             boards_view = boards_stores[name].finalized()
             moves_view = moves_stores[name].finalized()
+            game_ids_view = game_id_stores[name].finalized()
             counts[name] = boards_stores[name].count
 
             out_path = out_dir / f"bucket_{name}_{chunk}.npz"
-            np.savez_compressed(out_path, boards=boards_view, moves=moves_view)
+            np.savez_compressed(
+                out_path,
+                boards=boards_view,
+                moves=moves_view,
+                game_ids=game_ids_view,
+            )
 
             boards_stores[name].cleanup()
             moves_stores[name].cleanup()
+            game_id_stores[name].cleanup()
 
     return counts
 
@@ -221,8 +240,8 @@ def prepare_all_chunks(
     brackets: list[EloBracket],
     chunk_size: int,
     max_chunks: int | None = None,
-    max_positions_per_game: int = 40,
-    skip_first_n_plies: int = 6,
+    max_positions_per_game: int = 60,
+    skip_first_n_plies: int = 10,
 ) -> None:
     chunk = 1
     totals: dict[str, int] = {b.name: 0 for b in brackets}
@@ -308,7 +327,7 @@ def main() -> None:
         "of processing the whole file; default: process until exhausted).",
     )
     parser.add_argument("--max-positions-per-game", type=int, default=40)
-    parser.add_argument("--skip-first-n-plies", type=int, default=6)
+    parser.add_argument("--skip-first-n-plies", type=int, default=10)
     args = parser.parse_args()
 
     bucket_names = args.buckets.split(",") if args.buckets else None

@@ -18,7 +18,7 @@ from chess_data.prepare import (
 from chess_shared import NUM_MOVES, NUM_PLANES
 
 SAMPLE_PGN = """\
-[Event "Rated Blitz game"]
+[Event "Rated Rapid game"]
 [White "a"]
 [Black "b"]
 [WhiteElo "1000"]
@@ -27,7 +27,7 @@ SAMPLE_PGN = """\
 
 1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5 7. Bb3 d6 1-0
 
-[Event "Rated Blitz game"]
+[Event "Rated Rapid game"]
 [White "c"]
 [Black "d"]
 [WhiteElo "2250"]
@@ -36,7 +36,7 @@ SAMPLE_PGN = """\
 
 1. d4 d5 2. c4 e6 3. Nc3 Nf6 4. Bg5 Be7 5. e3 O-O 6. Nf3 h6 0-1
 
-[Event "Casual Blitz game"]
+[Event "Casual Rapid game"]
 [White "a"]
 [Black "b"]
 [WhiteElo "1000"]

@@ -15,7 +15,7 @@ from chess_shared import (
     select_move_index,
     top_k_moves,
 )
-from chess_shared.move_encoding import index_to_move
+from chess_shared.move_encoding import perspective_index_to_move
 from chess_training.model import MaiaPolicyNet
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -79,7 +79,28 @@ class ModelRegistry:
         if tier not in available:
             raise TierNotFoundError(tier, sorted(available))
 
-        checkpoint = torch.load(available[tier], map_location="cpu", weights_only=True)
+        checkpoint_path = available[tier]
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+
+        ckpt_planes = checkpoint.get("in_planes")
+        ckpt_moves = checkpoint.get("num_moves")
+        if ckpt_planes is not None and ckpt_planes != NUM_PLANES:
+            raise ValueError(
+                f"checkpoint '{checkpoint_path}' was trained with in_planes="
+                f"{ckpt_planes}, but the current board encoding uses "
+                f"NUM_PLANES={NUM_PLANES}. This checkpoint predates a board "
+                "encoding change and can't be served -- retrain on data built "
+                "with the current chess_data.prepare."
+            )
+        if ckpt_moves is not None and ckpt_moves != NUM_MOVES:
+            raise ValueError(
+                f"checkpoint '{checkpoint_path}' was trained with num_moves="
+                f"{ckpt_moves}, but the current move encoding uses "
+                f"NUM_MOVES={NUM_MOVES}. This checkpoint predates a move "
+                "encoding change and can't be served -- retrain on data built "
+                "with the current chess_data.prepare."
+            )
+
         model = MaiaPolicyNet(
             in_planes=NUM_PLANES,
             num_moves=NUM_MOVES,
@@ -114,9 +135,9 @@ def compute_model_move(
 
     candidates: list[Candidate] = []
     for idx, prob in top_k_moves(probs, k=top_k):
-        move = index_to_move(idx, board)
+        move = perspective_index_to_move(idx, board)
         candidates.append({"uci": move.uci(), "san": board.san(move), "prob": prob})
 
     move_idx = select_move_index(probs, temperature=temperature)
-    chosen_move = index_to_move(move_idx, board)
+    chosen_move = perspective_index_to_move(move_idx, board)
     return chosen_move, candidates

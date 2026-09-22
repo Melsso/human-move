@@ -96,6 +96,6 @@ def test_full_pipeline_on_real_position_produces_a_legal_move():
     probs = masked_softmax(logits, mask)
     move_idx = select_move_index(probs, temperature=0.0)
 
-    move = index_to_move(move_idx, board)
+    move = index_to_move(move_idx)
     assert board.is_legal(move)
     assert move_to_index(move) == move_idx

@@ -9,11 +9,15 @@ from chess_training.model import MaiaPolicyNet
 from chess_training.train import evaluate, pick_device, train
 
 
-def _write_synthetic_npz(path: Path, n: int, seed: int = 0) -> None:
+def _write_synthetic_npz(
+    path: Path, n: int, seed: int = 0, game_ids: np.ndarray | None = None
+) -> None:
     rng = np.random.default_rng(seed)
     boards = rng.random((n, NUM_PLANES, 8, 8), dtype=np.float32)
     moves = rng.integers(0, NUM_MOVES, size=n, dtype=np.int64)
-    np.savez_compressed(path, boards=boards, moves=moves)
+    if game_ids is None:
+        game_ids = np.arange(n, dtype=np.int64)
+    np.savez_compressed(path, boards=boards, moves=moves, game_ids=game_ids)
 
 
 def test_model_forward_shape():
@@ -52,6 +56,39 @@ def test_dataset_split_is_disjoint(tmp_path: Path):
     assert len(train_idx) + len(val_idx) == 100
 
 
+def test_split_is_grouped_by_game_not_by_position(tmp_path: Path):
+    game_sizes = [3, 1, 5, 2, 4, 6, 1, 2, 3, 5]
+    n = sum(game_sizes)
+    game_ids = np.concatenate(
+        [np.full(size, gid, dtype=np.int64) for gid, size in enumerate(game_sizes)]
+    )
+    npz_path = tmp_path / "grouped.npz"
+    _write_synthetic_npz(npz_path, n=n, game_ids=game_ids)
+
+    train_loader, val_loader = make_train_val_split(
+        str(npz_path), batch_size=4, val_fraction=0.3, seed=0
+    )
+
+    train_games = set(game_ids[train_loader.indices.numpy()].tolist())
+    val_games = set(game_ids[val_loader.indices.numpy()].tolist())
+    assert train_games.isdisjoint(val_games)
+    assert len(train_loader.indices) + len(val_loader.indices) == n
+    assert len(val_games) >= 1
+    assert len(train_games) >= 1
+
+
+def test_make_train_val_split_requires_game_ids(tmp_path: Path):
+    rng = np.random.default_rng(0)
+    n = 20
+    boards = rng.random((n, NUM_PLANES, 8, 8), dtype=np.float32)
+    moves = rng.integers(0, NUM_MOVES, size=n, dtype=np.int64)
+    npz_path = tmp_path / "legacy_no_game_ids.npz"
+    np.savez_compressed(npz_path, boards=boards, moves=moves)
+
+    with pytest.raises(KeyError, match="game_ids"):
+        make_train_val_split(str(npz_path), batch_size=4, val_fraction=0.2, seed=0)
+
+
 def test_loader_len_respects_drop_last(tmp_path: Path):
     npz_path = tmp_path / "synthetic.npz"
     _write_synthetic_npz(npz_path, n=100)
@@ -83,7 +120,8 @@ def test_train_loader_shuffles_between_epochs_but_is_a_permutation(tmp_path: Pat
     rng = np.random.default_rng(0)
     boards = rng.random((n, NUM_PLANES, 8, 8), dtype=np.float32)
     moves = np.arange(n, dtype=np.int64)
-    np.savez_compressed(npz_path, boards=boards, moves=moves)
+    game_ids = np.arange(n, dtype=np.int64)
+    np.savez_compressed(npz_path, boards=boards, moves=moves, game_ids=game_ids)
 
     train_loader, _ = make_train_val_split(
         str(npz_path), batch_size=8, val_fraction=0.25, seed=0
@@ -155,6 +193,133 @@ def test_full_training_loop_runs_and_produces_checkpoints(tmp_path: Path):
 
     model = MaiaPolicyNet(NUM_PLANES, NUM_MOVES, num_blocks=1, num_filters=8)
     model.load_state_dict(checkpoint["model_state_dict"])
+
+
+def test_checkpoint_records_encoding_dimensions(tmp_path: Path):
+    npz_path = tmp_path / "synthetic.npz"
+    _write_synthetic_npz(npz_path, n=16)
+    out_dir = tmp_path / "checkpoints"
+
+    train(
+        npz_path=npz_path,
+        out_dir=out_dir,
+        epochs=1,
+        batch_size=4,
+        lr=1e-3,
+        val_fraction=0.25,
+        num_blocks=1,
+        num_filters=8,
+    )
+
+    checkpoint = torch.load(out_dir / "last.pt", weights_only=True)
+    assert checkpoint["in_planes"] == NUM_PLANES
+    assert checkpoint["num_moves"] == NUM_MOVES
+
+
+def test_resume_rejects_checkpoint_with_mismatched_in_planes(tmp_path: Path):
+    npz_path = tmp_path / "synthetic.npz"
+    _write_synthetic_npz(npz_path, n=16)
+    chunk1_dir = tmp_path / "chunk1"
+    train(
+        npz_path=npz_path,
+        out_dir=chunk1_dir,
+        epochs=1,
+        batch_size=4,
+        lr=1e-3,
+        val_fraction=0.25,
+        num_blocks=1,
+        num_filters=8,
+    )
+
+    stale = torch.load(chunk1_dir / "last.pt", weights_only=True)
+    stale["in_planes"] = NUM_PLANES + 1
+    stale_path = chunk1_dir / "stale_planes.pt"
+    torch.save(stale, stale_path)
+
+    with pytest.raises(ValueError, match="in_planes"):
+        train(
+            npz_path=npz_path,
+            out_dir=tmp_path / "chunk2",
+            epochs=1,
+            batch_size=4,
+            lr=1e-3,
+            val_fraction=0.25,
+            num_blocks=1,
+            num_filters=8,
+            resume_from=stale_path,
+        )
+
+
+def test_resume_rejects_checkpoint_with_mismatched_num_moves(tmp_path: Path):
+    npz_path = tmp_path / "synthetic.npz"
+    _write_synthetic_npz(npz_path, n=16)
+    chunk1_dir = tmp_path / "chunk1"
+    train(
+        npz_path=npz_path,
+        out_dir=chunk1_dir,
+        epochs=1,
+        batch_size=4,
+        lr=1e-3,
+        val_fraction=0.25,
+        num_blocks=1,
+        num_filters=8,
+    )
+
+    stale = torch.load(chunk1_dir / "last.pt", weights_only=True)
+    stale["num_moves"] = NUM_MOVES - 1
+    stale_path = chunk1_dir / "stale_moves.pt"
+    torch.save(stale, stale_path)
+
+    with pytest.raises(ValueError, match="num_moves"):
+        train(
+            npz_path=npz_path,
+            out_dir=tmp_path / "chunk2",
+            epochs=1,
+            batch_size=4,
+            lr=1e-3,
+            val_fraction=0.25,
+            num_blocks=1,
+            num_filters=8,
+            resume_from=stale_path,
+        )
+
+
+def test_resume_from_legacy_checkpoint_without_encoding_fields_still_works(
+    tmp_path: Path,
+):
+    npz_path = tmp_path / "synthetic.npz"
+    _write_synthetic_npz(npz_path, n=16)
+    chunk1_dir = tmp_path / "chunk1"
+    train(
+        npz_path=npz_path,
+        out_dir=chunk1_dir,
+        epochs=1,
+        batch_size=4,
+        lr=1e-3,
+        val_fraction=0.25,
+        num_blocks=1,
+        num_filters=8,
+    )
+
+    legacy = torch.load(chunk1_dir / "last.pt", weights_only=True)
+    del legacy["in_planes"]
+    del legacy["num_moves"]
+    legacy_path = chunk1_dir / "legacy.pt"
+    torch.save(legacy, legacy_path)
+
+    chunk2_dir = tmp_path / "chunk2"
+    train(
+        npz_path=npz_path,
+        out_dir=chunk2_dir,
+        epochs=1,
+        batch_size=4,
+        lr=1e-3,
+        val_fraction=0.25,
+        num_blocks=1,
+        num_filters=8,
+        resume_from=legacy_path,
+    )
+    assert (chunk2_dir / "epoch_2.pt").exists()
 
 
 def test_save_every_epoch_false_skips_epoch_files_but_keeps_best_and_last(
@@ -231,8 +396,9 @@ def test_resume_from_picks_up_architecture_from_checkpoint_not_args(tmp_path: Pa
     rng = np.random.default_rng(0)
     boards = rng.random((n, NUM_PLANES, 8, 8), dtype=np.float32)
     moves = rng.integers(0, NUM_MOVES, size=n, dtype=np.int64)
+    game_ids = np.arange(n, dtype=np.int64)
     npz_path = tmp_path / "data.npz"
-    np.savez_compressed(npz_path, boards=boards, moves=moves)
+    np.savez_compressed(npz_path, boards=boards, moves=moves, game_ids=game_ids)
 
     chunk1_dir = tmp_path / "chunk1"
     train(
@@ -272,8 +438,9 @@ def test_resume_from_continues_epoch_numbering_cumulatively(tmp_path: Path):
     rng = np.random.default_rng(0)
     boards = rng.random((n, NUM_PLANES, 8, 8), dtype=np.float32)
     moves = rng.integers(0, NUM_MOVES, size=n, dtype=np.int64)
+    game_ids = np.arange(n, dtype=np.int64)
     npz_path = tmp_path / "data.npz"
-    np.savez_compressed(npz_path, boards=boards, moves=moves)
+    np.savez_compressed(npz_path, boards=boards, moves=moves, game_ids=game_ids)
 
     chunk1_dir = tmp_path / "chunk1"
     train(
@@ -345,8 +512,9 @@ def test_resume_from_actually_warm_starts_not_reinitializes(tmp_path: Path):
     rng = np.random.default_rng(0)
     boards = rng.random((n, NUM_PLANES, 8, 8), dtype=np.float32)
     moves = (np.round(boards.sum(axis=(1, 2, 3)) * 1000).astype(np.int64)) % NUM_MOVES
+    game_ids = np.arange(n, dtype=np.int64)
     npz_path = tmp_path / "learnable.npz"
-    np.savez_compressed(npz_path, boards=boards, moves=moves)
+    np.savez_compressed(npz_path, boards=boards, moves=moves, game_ids=game_ids)
 
     chunk1_dir = tmp_path / "chunk1"
     train(
@@ -393,9 +561,10 @@ def test_model_can_overfit_a_tiny_learnable_dataset(tmp_path: Path):
     rng = np.random.default_rng(0)
     boards = rng.random((n, NUM_PLANES, 8, 8), dtype=np.float32)
     moves = (np.round(boards.sum(axis=(1, 2, 3)) * 1000).astype(np.int64)) % NUM_MOVES
+    game_ids = np.arange(n, dtype=np.int64)
 
     npz_path = tmp_path / "learnable.npz"
-    np.savez_compressed(npz_path, boards=boards, moves=moves)
+    np.savez_compressed(npz_path, boards=boards, moves=moves, game_ids=game_ids)
     out_dir = tmp_path / "checkpoints"
 
     train(

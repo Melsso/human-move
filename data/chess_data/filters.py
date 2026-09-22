@@ -24,7 +24,7 @@ def should_keep_game(
         return False
 
     event = headers.get("Event", "")
-    if "Rated" not in event:
+    if "Rated Rapid" not in event:
         return False
 
     if headers.get("WhiteTitle") == "BOT" or headers.get("BlackTitle") == "BOT":
