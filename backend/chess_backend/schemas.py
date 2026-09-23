@@ -32,3 +32,13 @@ class MoveResponse(BaseModel):
     game_over: bool
     result: str | None
     top_candidates: list[MoveCandidate]
+
+
+class EvalRequest(BaseModel):
+    fen: str
+
+
+class EvalResponse(BaseModel):
+    available: bool
+    score_cp: int | None = None
+    mate: int | None = None

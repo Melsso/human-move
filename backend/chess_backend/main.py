@@ -1,16 +1,36 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import chess
+import chess.engine
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
+from chess_backend.engine_eval import EngineManager, EngineUnavailableError
 from chess_backend.inference import ModelRegistry, TierNotFoundError, compute_model_move
-from chess_backend.schemas import MoveCandidate, MoveRequest, MoveResponse, TierInfo
+from chess_backend.schemas import (
+    EvalRequest,
+    EvalResponse,
+    MoveCandidate,
+    MoveRequest,
+    MoveResponse,
+    TierInfo,
+)
 
-app = FastAPI(title="chess-ai backend")
 registry = ModelRegistry()
+engine_manager = EngineManager()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    yield
+    engine_manager.close()
+
+
+app = FastAPI(title="chess-ai backend", lifespan=lifespan)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -83,6 +103,25 @@ def make_move(req: MoveRequest) -> MoveResponse:
         result=board.result() if board.is_game_over() else None,
         top_candidates=[MoveCandidate(**c) for c in candidates],
     )
+
+
+@app.post("/api/eval", response_model=EvalResponse)
+def evaluate_position(req: EvalRequest) -> EvalResponse:
+    try:
+        board = chess.Board(req.fen)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"invalid FEN: {e}") from e
+
+    try:
+        score = engine_manager.evaluate(board)
+    except EngineUnavailableError:
+        return EvalResponse(available=False)
+
+    white_score = score.white()
+    mate = white_score.mate()
+    if mate is not None:
+        return EvalResponse(available=True, mate=mate)
+    return EvalResponse(available=True, score_cp=white_score.score())
 
 
 if STATIC_DIR.exists():

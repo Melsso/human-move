@@ -1,315 +1,1201 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>chess-ai</title>
-  <link
-    rel="stylesheet"
-    href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css"
-  />
-  <style>
-    :root {
-      --bg: #1a1a1a;
-      --panel: #242424;
-      --text: #e8e8e8;
-      --muted: #9a9a9a;
-      --accent: #4f8ef7;
-      --border: #333;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 32px 16px;
-      min-height: 100vh;
-    }
-    h1 {
-      font-size: 1.4rem;
-      font-weight: 600;
-      margin: 0 0 24px 0;
-    }
-    .layout {
-      display: flex;
-      gap: 32px;
-      flex-wrap: wrap;
-      justify-content: center;
-      max-width: 900px;
-    }
-    #board {
-      width: 480px;
-    }
-    .panel {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 20px;
-      width: 280px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-    label {
-      font-size: 0.85rem;
-      color: var(--muted);
-      display: block;
-      margin-bottom: 6px;
-    }
-    select, button {
-      width: 100%;
-      padding: 8px 10px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: #2e2e2e;
-      color: var(--text);
-      font-size: 0.9rem;
-    }
-    button {
-      cursor: pointer;
-      background: var(--accent);
-      border: none;
-      font-weight: 600;
-    }
-    button:hover { opacity: 0.9; }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-    #status {
-      font-size: 0.9rem;
-      min-height: 1.4em;
-    }
-    #status.error { color: #f77; }
-    #status.info { color: var(--muted); }
-    .tier-meta {
-      font-size: 0.75rem;
-      color: var(--muted);
-      line-height: 1.5;
-    }
-    #candidates {
-      font-size: 0.8rem;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .candidate-row {
-      display: flex;
-      justify-content: space-between;
-      color: var(--muted);
-    }
-    .candidate-row.chosen { color: var(--accent); font-weight: 600; }
-    #moveLog {
-      font-size: 0.8rem;
-      color: var(--muted);
-      max-height: 160px;
-      overflow-y: auto;
-      line-height: 1.6;
-    }
-  </style>
-</head>
-<body>
-  <h1>chess-ai</h1>
+  <head>
+    <meta charset="UTF-8" />
+    <title>chess-ai</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css"
+    />
+    <style>
+      :root {
+        --bg: #1a1a1a;
+        --panel: #242424;
+        --text: #e8e8e8;
+        --muted: #9a9a9a;
+        --accent: #4f8ef7;
+        --accent-soft: rgba(79, 142, 247, 0.15);
+        --border: #333;
+        --win: #5cd65c;
+        --loss: #f77;
+      }
 
-  <div class="layout">
-    <div id="board"></div>
+      * {
+        box-sizing: border-box;
+      }
 
-    <div class="panel">
-      <div>
-        <label for="tierSelect">opponent</label>
-        <select id="tierSelect"></select>
-        <div class="tier-meta" id="tierMeta"></div>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 32px 16px;
+        min-height: 100vh;
+      }
+
+      h1 {
+        font-size: 1.4rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        margin: 0 0 24px 0;
+      }
+
+      .layout {
+        display: flex;
+        gap: 32px;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: flex-start;
+        max-width: 1080px;
+      }
+
+      .board-frame {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+      }
+
+      .board-area {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+      }
+
+      #board {
+        width: 600px;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+
+      .eval-bar-container {
+        width: 26px;
+        height: 600px;
+        background: #111;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        position: relative;
+        overflow: hidden;
+        display: none;
+        flex-direction: column;
+        justify-content: flex-end;
+      }
+
+      .eval-bar-container.visible {
+        display: flex;
+      }
+
+      .eval-bar-fill {
+        width: 100%;
+        background: #e8e8e8;
+        height: 50%;
+        transition: height 0.35s ease;
+      }
+
+      .eval-bar-label {
+        position: absolute;
+        top: 6px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: #fff;
+        text-shadow:
+          -1px -1px 0 #000,
+          1px -1px 0 #000,
+          -1px 1px 0 #000,
+          1px 1px 0 #000;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+        width: 280px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+      }
+
+      label {
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      select,
+      button {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: #2e2e2e;
+        color: var(--text);
+        font-size: 0.9rem;
+        transition:
+          border-color 0.15s ease,
+          color 0.15s ease,
+          filter 0.15s ease,
+          opacity 0.15s ease;
+      }
+
+      select:hover,
+      select:focus {
+        border-color: var(--accent);
+        outline: none;
+      }
+
+      button {
+        cursor: pointer;
+        background: var(--accent);
+        border: none;
+        font-weight: 600;
+      }
+
+      button:not(:disabled):hover {
+        filter: brightness(1.08);
+      }
+
+      button:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+
+      button.secondary {
+        background: #2e2e2e;
+        color: var(--text);
+        border: 1px solid var(--border);
+        font-weight: 500;
+      }
+
+      button.secondary:not(:disabled):hover {
+        border-color: var(--accent);
+        color: var(--accent);
+        filter: none;
+      }
+
+      #status {
+        font-size: 0.9rem;
+        min-height: 1.4em;
+      }
+
+      #status.error {
+        color: var(--loss);
+      }
+
+      #status.info {
+        color: var(--muted);
+      }
+
+      .tier-meta {
+        font-size: 0.75rem;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      #candidates {
+        font-size: 0.8rem;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+
+      .candidate-row {
+        position: relative;
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 6px;
+        border-radius: 4px;
+        overflow: hidden;
+        color: var(--muted);
+      }
+
+      .candidate-row .bar {
+        position: absolute;
+        inset: 0;
+        right: auto;
+        background: rgba(154, 154, 154, 0.15);
+        z-index: 0;
+      }
+
+      .candidate-row.chosen .bar {
+        background: var(--accent-soft);
+      }
+
+      .candidate-row.chosen {
+        color: var(--accent);
+        font-weight: 600;
+      }
+
+      .candidate-row span {
+        position: relative;
+        z-index: 1;
+      }
+
+      #reviewBanner {
+        display: none;
+        font-size: 0.72rem;
+        color: var(--accent);
+        background: var(--accent-soft);
+        border: 1px solid rgba(79, 142, 247, 0.3);
+        border-radius: 6px;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+        text-align: center;
+      }
+
+      #moveLog {
+        font-size: 0.82rem;
+        color: var(--muted);
+        max-height: 180px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+
+      .move-row {
+        display: grid;
+        grid-template-columns: 26px 1fr 1fr;
+        gap: 4px;
+      }
+
+      .move-num {
+        color: var(--muted);
+        padding: 2px 0;
+      }
+
+      .move-entry {
+        cursor: pointer;
+        color: var(--text);
+        padding: 2px 5px;
+        border-radius: 3px;
+        transition: background 0.1s ease;
+      }
+
+      .move-entry:hover {
+        background: var(--accent-soft);
+      }
+
+      .move-entry.active {
+        background: var(--accent);
+        color: #fff;
+        font-weight: 600;
+      }
+
+      .nav-row {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .nav-row button {
+        padding: 6px 0;
+        font-size: 0.85rem;
+      }
+
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .toggle-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        color: var(--text);
+        margin-bottom: 0;
+        text-transform: none;
+        font-weight: 400;
+        letter-spacing: normal;
+      }
+
+      .toggle-label input {
+        width: auto;
+        cursor: pointer;
+      }
+
+      .toggle-hint {
+        font-size: 0.72rem;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      .highlight-square {
+        box-shadow: inset 0 0 0 9999px rgba(79, 142, 247, 0.35) !important;
+        cursor: pointer;
+      }
+
+      .selected-square {
+        box-shadow: inset 0 0 0 9999px rgba(79, 142, 247, 0.55) !important;
+      }
+
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.65);
+        backdrop-filter: blur(3px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+        padding: 16px;
+      }
+
+      .modal-overlay.visible {
+        display: flex;
+      }
+
+      .modal-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 32px 40px;
+        text-align: center;
+        min-width: 280px;
+        max-width: 360px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+      }
+
+      .modal-icon {
+        font-size: 2.6rem;
+        margin-bottom: 10px;
+      }
+
+      .modal-title {
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+
+      .modal-title.win {
+        color: var(--win);
+      }
+
+      .modal-title.loss {
+        color: var(--loss);
+      }
+
+      .modal-title.draw {
+        color: var(--muted);
+      }
+
+      .modal-subtitle {
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin-bottom: 24px;
+      }
+
+      .modal-actions {
+        display: flex;
+        gap: 10px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>chess-ai</h1>
+
+    <div class="layout">
+      <div class="board-frame">
+        <div class="board-area">
+          <div id="evalBarContainer" class="eval-bar-container">
+            <div id="evalBarLabel" class="eval-bar-label">0.0</div>
+            <div id="evalBarFill" class="eval-bar-fill"></div>
+          </div>
+          <div id="board"></div>
+        </div>
       </div>
 
-      <button id="newGameBtn">New game</button>
+      <div class="panel">
+        <div>
+          <label for="tierSelect">opponent</label>
+          <select id="tierSelect"></select>
+          <div class="tier-meta" id="tierMeta"></div>
+        </div>
 
-      <div id="status" class="info">loading...</div>
+        <button id="newGameBtn">New game</button>
 
-      <div>
-        <label>model's last move considered</label>
-        <div id="candidates"></div>
-      </div>
+        <div class="toggle-row">
+          <label class="toggle-label" for="evalToggle">
+            <input type="checkbox" id="evalToggle" />
+            Show eval bar
+          </label>
+        </div>
+        <div class="toggle-hint" id="evalHint"></div>
 
-      <div>
-        <label>moves</label>
-        <div id="moveLog"></div>
+        <div id="status" class="info">loading...</div>
+
+        <div>
+          <label>model's last move considered</label>
+          <div id="candidates"></div>
+        </div>
+
+        <div>
+          <label>moves</label>
+          <div id="reviewBanner"></div>
+          <div id="moveLog"></div>
+          <div class="nav-row">
+            <button id="navStart" class="secondary" title="Start (Home)">
+              &#8676;
+            </button>
+            <button
+              id="navPrev"
+              class="secondary"
+              title="Previous move (&#8592;)"
+            >
+              &#8592;
+            </button>
+            <button id="navNext" class="secondary" title="Next move (&#8594;)">
+              &#8594;
+            </button>
+            <button id="navEnd" class="secondary" title="Latest move (End)">
+              &#8677;
+            </button>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+    <div id="gameOverModal" class="modal-overlay">
+      <div class="modal-card">
+        <div id="modalIcon" class="modal-icon"></div>
+        <div id="modalTitle" class="modal-title"></div>
+        <div id="modalSubtitle" class="modal-subtitle"></div>
+        <div class="modal-actions">
+          <button id="modalNewGameBtn">New game</button>
+          <button id="modalCloseBtn" class="secondary">Review board</button>
+        </div>
+      </div>
+    </div>
 
-  <script>
-    const game = new Chess();
-    let board = null;
-    let currentTier = null;
-    let thinking = false;
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
 
-    const statusEl = document.getElementById("status");
-    const tierSelect = document.getElementById("tierSelect");
-    const tierMeta = document.getElementById("tierMeta");
-    const candidatesEl = document.getElementById("candidates");
-    const moveLogEl = document.getElementById("moveLog");
+    <script>
+      const game = new Chess();
 
-    function setStatus(text, kind) {
-      statusEl.textContent = text;
-      statusEl.className = kind || "info";
-    }
+      let board = null;
+      let currentTier = null;
+      let thinking = false;
+      let evalEnabled = false;
 
-    function logMove(text) {
-      const line = document.createElement("div");
-      line.textContent = text;
-      moveLogEl.prepend(line);
-    }
+      let positions = [game.fen()];
+      let sanHistory = [];
+      let viewIndex = 0;
 
-    function renderCandidates(candidates, chosenUci) {
-      candidatesEl.innerHTML = "";
-      candidates.forEach((c) => {
-        const row = document.createElement("div");
-        row.className = "candidate-row" + (c.uci === chosenUci ? " chosen" : "");
-        row.textContent = `${c.san}  ${(c.prob * 100).toFixed(1)}%`;
-        candidatesEl.appendChild(row);
-      });
-    }
+      let selectedSquare = null;
 
-    async function loadTiers() {
-      const res = await fetch("/api/tiers");
-      const tiers = await res.json();
+      const statusEl = document.getElementById("status");
+      const tierSelect = document.getElementById("tierSelect");
+      const tierMeta = document.getElementById("tierMeta");
+      const candidatesEl = document.getElementById("candidates");
+      const moveLogEl = document.getElementById("moveLog");
+      const reviewBanner = document.getElementById("reviewBanner");
 
-      if (tiers.length === 0) {
-        setStatus(
-          "no trained checkpoints found under training/checkpoints/*/best.pt",
-          "error"
-        );
-        tierSelect.disabled = true;
-        return;
+      const navStartBtn = document.getElementById("navStart");
+      const navPrevBtn = document.getElementById("navPrev");
+      const navNextBtn = document.getElementById("navNext");
+      const navEndBtn = document.getElementById("navEnd");
+
+      const evalToggle = document.getElementById("evalToggle");
+      const evalHint = document.getElementById("evalHint");
+      const evalBarContainer = document.getElementById("evalBarContainer");
+      const evalBarFill = document.getElementById("evalBarFill");
+      const evalBarLabel = document.getElementById("evalBarLabel");
+
+      const gameOverModal = document.getElementById("gameOverModal");
+      const modalIcon = document.getElementById("modalIcon");
+      const modalTitle = document.getElementById("modalTitle");
+      const modalSubtitle = document.getElementById("modalSubtitle");
+
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
       }
 
-      tierSelect.innerHTML = "";
-      tiers.forEach((t) => {
-        const opt = document.createElement("option");
-        opt.value = t.tier;
-        opt.textContent = t.tier;
-        opt.dataset.epoch = t.epoch;
-        opt.dataset.top1 = t.val_top1;
-        opt.dataset.top3 = t.val_top3;
-        tierSelect.appendChild(opt);
-      });
-      currentTier = tiers[0].tier;
-      updateTierMeta(tiers[0]);
-      setStatus("your move", "info");
-    }
-
-    function updateTierMeta(t) {
-      tierMeta.textContent =
-        `epoch ${t.epoch} \u00b7 val top1 ${(t.val_top1 * 100).toFixed(1)}% \u00b7 ` +
-        `val top3 ${(t.val_top3 * 100).toFixed(1)}%`;
-    }
-
-    tierSelect.addEventListener("change", () => {
-      currentTier = tierSelect.value;
-      const opt = tierSelect.selectedOptions[0];
-      updateTierMeta({
-        epoch: opt.dataset.epoch,
-        val_top1: Number(opt.dataset.top1),
-        val_top3: Number(opt.dataset.top3),
-      });
-    });
-
-    function newGame() {
-      game.reset();
-      board.start();
-      candidatesEl.innerHTML = "";
-      moveLogEl.innerHTML = "";
-      thinking = false;
-      setStatus("your move", "info");
-    }
-
-    document.getElementById("newGameBtn").addEventListener("click", newGame);
-
-    function onDragStart(source, piece) {
-      if (thinking || game.game_over()) return false;
-      // only let the human drag their own (white) pieces, and only on their turn
-      if (game.turn() !== "w" || piece.search(/^b/) !== -1) return false;
-    }
-
-    async function onDrop(source, target) {
-      const fenBeforeMove = game.fen();
-      const move = game.move({ from: source, to: target, promotion: "q" });
-      if (move === null) return "snapback";
-
-      logMove(`you: ${move.san}`);
-
-      if (game.game_over()) {
-        setStatus(`game over: ${resultText()}`, "info");
-        return;
+      function setStatus(text, kind) {
+        statusEl.textContent = text;
+        statusEl.className = kind || "info";
       }
 
-      thinking = true;
-      setStatus("model is thinking...", "info");
+      function renderCandidates(candidates, chosenUci) {
+        candidatesEl.innerHTML = "";
 
-      try {
-        const res = await fetch("/api/move", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fen: fenBeforeMove,
-            move_uci: move.from + move.to + (move.promotion || ""),
-            tier: currentTier,
-          }),
+        candidates.forEach((c) => {
+          const row = document.createElement("div");
+
+          row.className =
+            "candidate-row" + (c.uci === chosenUci ? " chosen" : "");
+
+          const bar = document.createElement("div");
+          bar.className = "bar";
+          bar.style.width = `${Math.min(100, c.prob * 100).toFixed(1)}%`;
+
+          const label = document.createElement("span");
+          label.textContent = c.san;
+
+          const pct = document.createElement("span");
+          pct.textContent = `${(c.prob * 100).toFixed(1)}%`;
+
+          row.appendChild(bar);
+          row.appendChild(label);
+          row.appendChild(pct);
+
+          candidatesEl.appendChild(row);
         });
+      }
 
-        if (!res.ok) {
-          const err = await res.json();
-          setStatus(`error: ${err.detail}`, "error");
-          thinking = false;
+      async function loadTiers() {
+        const res = await fetch("/api/tiers");
+        const tiers = await res.json();
+
+        if (tiers.length === 0) {
+          setStatus(
+            "no trained checkpoints found under training/checkpoints/*/best.pt",
+            "error",
+          );
+
+          tierSelect.disabled = true;
           return;
         }
 
-        const data = await res.json();
+        tierSelect.innerHTML = "";
 
-        if (data.model_move_uci) {
-          game.load(data.fen_after_model);
-          board.position(data.fen_after_model);
-          logMove(`model (${currentTier}): ${data.model_move_san}`);
-          renderCandidates(data.top_candidates, data.model_move_uci);
-        }
+        tiers.forEach((t) => {
+          const opt = document.createElement("option");
 
-        if (data.game_over) {
-          setStatus(`game over: ${resultText()}`, "info");
-        } else {
-          setStatus("your move", "info");
-        }
-      } catch (e) {
-        setStatus(`connection error: ${e}`, "error");
-      } finally {
-        thinking = false;
+          opt.value = t.tier;
+          opt.textContent = t.tier;
+          opt.dataset.epoch = t.epoch;
+          opt.dataset.top1 = t.val_top1;
+          opt.dataset.top3 = t.val_top3;
+
+          tierSelect.appendChild(opt);
+        });
+
+        currentTier = tiers[0].tier;
+
+        updateTierMeta(tiers[0]);
+
+        setStatus("your move", "info");
       }
-    }
 
-    function resultText() {
-      if (game.in_checkmate()) return `checkmate, ${game.turn() === "w" ? "black" : "white"} wins`;
-      if (game.in_stalemate()) return "stalemate";
-      if (game.in_draw()) return "draw";
-      return game.turn() === "w" ? "black wins" : "white wins";
-    }
+      function updateTierMeta(t) {
+        tierMeta.textContent =
+          `epoch ${t.epoch} · val top1 ${(t.val_top1 * 100).toFixed(1)}% · ` +
+          `val top3 ${(t.val_top3 * 100).toFixed(1)}%`;
+      }
 
-    function onSnapEnd() {
-      board.position(game.fen());
-    }
+      tierSelect.addEventListener("change", () => {
+        currentTier = tierSelect.value;
 
-    board = Chessboard("board", {
-      draggable: true,
-      position: "start",
-      pieceTheme: "https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png",
-      onDragStart,
-      onDrop,
-      onSnapEnd,
-    });
+        const opt = tierSelect.selectedOptions[0];
 
-    loadTiers();
-  </script>
-</body>
+        updateTierMeta({
+          epoch: opt.dataset.epoch,
+          val_top1: Number(opt.dataset.top1),
+          val_top3: Number(opt.dataset.top3),
+        });
+      });
+
+      function highlightLegalMoves(square) {
+        const moves = game.moves({
+          square: square,
+          verbose: true,
+        });
+
+        moves.forEach((move) => {
+          $(`#board .square-${move.to}`).addClass("highlight-square");
+        });
+
+        $(`#board .square-${square}`).addClass("selected-square");
+      }
+
+      function clearHighlights() {
+        $("#board .highlight-square, #board .selected-square").removeClass(
+          "highlight-square selected-square",
+        );
+      }
+
+      let hoveredSquare = null;
+
+      function onMouseoverSquare(square) {
+        hoveredSquare = square;
+      }
+
+      function onMouseoutSquare(square) {
+        if (hoveredSquare === square) {
+          hoveredSquare = null;
+        }
+      }
+
+      function resetEvalBar() {
+        evalBarFill.style.height = "50%";
+        evalBarLabel.textContent = "0.0";
+      }
+
+      function updateEvalBar(scoreCp, mate) {
+        let whiteFraction;
+        let label;
+
+        if (mate !== null && mate !== undefined) {
+          whiteFraction = mate > 0 ? 1 : 0;
+          label = `M${Math.abs(mate)}`;
+        } else if (scoreCp !== null && scoreCp !== undefined) {
+          whiteFraction = 0.5 + 0.5 * Math.tanh(scoreCp / 400);
+
+          const pawns = scoreCp / 100;
+
+          label = (pawns > 0 ? "+" : "") + pawns.toFixed(1);
+        } else {
+          whiteFraction = 0.5;
+          label = "";
+        }
+
+        evalBarFill.style.height = `${(whiteFraction * 100).toFixed(1)}%`;
+
+        evalBarLabel.textContent = label;
+      }
+
+      async function fetchEval(fen) {
+        if (!evalEnabled) return;
+
+        try {
+          const res = await fetch("/api/eval", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ fen }),
+          });
+
+          const data = await res.json();
+
+          if (!data.available) {
+            evalEnabled = false;
+            evalToggle.checked = false;
+            evalToggle.disabled = true;
+
+            evalBarContainer.classList.remove("visible");
+
+            evalHint.textContent =
+              "stockfish not found on this machine -- see backend/README.md to enable the eval bar";
+
+            return;
+          }
+
+          updateEvalBar(data.score_cp, data.mate);
+        } catch (e) {}
+      }
+
+      evalToggle.addEventListener("change", () => {
+        evalEnabled = evalToggle.checked;
+
+        if (evalEnabled) {
+          evalBarContainer.classList.add("visible");
+
+          resetEvalBar();
+          fetchEval(game.fen());
+        } else {
+          evalBarContainer.classList.remove("visible");
+        }
+      });
+
+      function renderMoveList() {
+        moveLogEl.innerHTML = "";
+
+        for (let i = 0; i < sanHistory.length; i += 2) {
+          const moveNum = i / 2 + 1;
+
+          const row = document.createElement("div");
+          row.className = "move-row";
+
+          const numSpan = document.createElement("span");
+          numSpan.className = "move-num";
+          numSpan.textContent = `${moveNum}.`;
+
+          row.appendChild(numSpan);
+
+          const whiteSpan = document.createElement("span");
+
+          whiteSpan.className =
+            "move-entry" + (viewIndex === i + 1 ? " active" : "");
+
+          whiteSpan.textContent = sanHistory[i];
+
+          whiteSpan.addEventListener("click", () => {
+            goToPosition(i + 1);
+          });
+
+          row.appendChild(whiteSpan);
+
+          if (sanHistory[i + 1]) {
+            const blackSpan = document.createElement("span");
+
+            blackSpan.className =
+              "move-entry" + (viewIndex === i + 2 ? " active" : "");
+
+            blackSpan.textContent = sanHistory[i + 1];
+
+            blackSpan.addEventListener("click", () => {
+              goToPosition(i + 2);
+            });
+
+            row.appendChild(blackSpan);
+          }
+
+          moveLogEl.appendChild(row);
+        }
+
+        const active = moveLogEl.querySelector(".active");
+
+        if (active) {
+          active.scrollIntoView({
+            block: "nearest",
+          });
+        }
+      }
+
+      function updateNavButtons() {
+        const atStart = viewIndex === 0;
+        const atLive = viewIndex === positions.length - 1;
+
+        navStartBtn.disabled = atStart;
+        navPrevBtn.disabled = atStart;
+        navNextBtn.disabled = atLive;
+        navEndBtn.disabled = atLive;
+
+        if (atLive) {
+          reviewBanner.style.display = "none";
+        } else {
+          reviewBanner.style.display = "block";
+
+          reviewBanner.textContent =
+            `Reviewing move ${viewIndex} of ${positions.length - 1} ` +
+            `— press End to return`;
+        }
+      }
+
+      function goToPosition(index) {
+        const clamped = Math.max(0, Math.min(index, positions.length - 1));
+
+        if (clamped === viewIndex) return;
+
+        viewIndex = clamped;
+
+        selectedSquare = null;
+
+        clearHighlights();
+
+        board.position(positions[viewIndex]);
+
+        renderMoveList();
+        updateNavButtons();
+      }
+
+      navStartBtn.addEventListener("click", () => {
+        goToPosition(0);
+      });
+
+      navPrevBtn.addEventListener("click", () => {
+        goToPosition(viewIndex - 1);
+      });
+
+      navNextBtn.addEventListener("click", () => {
+        goToPosition(viewIndex + 1);
+      });
+
+      navEndBtn.addEventListener("click", () => {
+        goToPosition(positions.length - 1);
+      });
+
+      document.addEventListener("keydown", (e) => {
+        if (
+          document.activeElement &&
+          document.activeElement.tagName === "SELECT"
+        ) {
+          return;
+        }
+
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          goToPosition(viewIndex - 1);
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          goToPosition(viewIndex + 1);
+        } else if (e.key === "Home") {
+          e.preventDefault();
+          goToPosition(0);
+        } else if (e.key === "End") {
+          e.preventDefault();
+          goToPosition(positions.length - 1);
+        }
+      });
+
+      function showGameOverModal() {
+        let outcome;
+        let title;
+        let subtitle;
+        let icon;
+
+        if (game.in_checkmate()) {
+          const humanWon = game.turn() === "b";
+
+          outcome = humanWon ? "win" : "loss";
+          title = humanWon ? "You won!" : "You lost";
+
+          subtitle = `Checkmate — ${humanWon ? "black" : "white"} is mated`;
+
+          icon = humanWon ? "🏆" : "😔";
+        } else if (game.in_stalemate()) {
+          outcome = "draw";
+          title = "Draw";
+          subtitle = "Stalemate";
+          icon = "🤝";
+        } else if (game.in_threefold_repetition()) {
+          outcome = "draw";
+          title = "Draw";
+          subtitle = "Threefold repetition";
+          icon = "🤝";
+        } else if (game.insufficient_material()) {
+          outcome = "draw";
+          title = "Draw";
+          subtitle = "Insufficient material";
+          icon = "🤝";
+        } else if (game.in_draw()) {
+          outcome = "draw";
+          title = "Draw";
+          subtitle = "50-move rule";
+          icon = "🤝";
+        } else {
+          return;
+        }
+
+        modalIcon.textContent = icon;
+
+        modalTitle.textContent = title;
+
+        modalTitle.className = `modal-title ${outcome}`;
+
+        modalSubtitle.textContent = subtitle;
+
+        gameOverModal.classList.add("visible");
+      }
+
+      function hideGameOverModal() {
+        gameOverModal.classList.remove("visible");
+      }
+
+      document
+        .getElementById("modalNewGameBtn")
+        .addEventListener("click", () => {
+          hideGameOverModal();
+          newGame();
+        });
+
+      document
+        .getElementById("modalCloseBtn")
+        .addEventListener("click", hideGameOverModal);
+
+      gameOverModal.addEventListener("click", (e) => {
+        if (e.target === gameOverModal) {
+          hideGameOverModal();
+        }
+      });
+
+      function newGame() {
+        game.reset();
+
+        positions = [game.fen()];
+        sanHistory = [];
+        viewIndex = 0;
+
+        selectedSquare = null;
+
+        board.position(game.fen());
+
+        clearHighlights();
+
+        candidatesEl.innerHTML = "";
+
+        renderMoveList();
+        updateNavButtons();
+
+        thinking = false;
+
+        hideGameOverModal();
+
+        setStatus("your move", "info");
+
+        if (evalEnabled) {
+          resetEvalBar();
+          fetchEval(game.fen());
+        }
+      }
+
+      document.getElementById("newGameBtn").addEventListener("click", newGame);
+
+      function onDragStart(source, piece) {
+        if (thinking || game.game_over()) {
+          return false;
+        }
+
+        if (viewIndex !== positions.length - 1) {
+          return false;
+        }
+
+        if (game.turn() !== "w" || piece.search(/^b/) !== -1) {
+          return false;
+        }
+
+        selectedSquare = source;
+
+        clearHighlights();
+        highlightLegalMoves(source);
+
+        return true;
+      }
+
+      async function afterHumanMove(move, fenBeforeMove) {
+        positions.push(game.fen());
+
+        sanHistory.push(move.san);
+
+        viewIndex = positions.length - 1;
+
+        renderMoveList();
+        updateNavButtons();
+
+        fetchEval(game.fen());
+
+        if (game.game_over()) {
+          setStatus(`game over: ${resultText()}`, "info");
+
+          showGameOverModal();
+
+          return;
+        }
+
+        thinking = true;
+
+        setStatus("model is thinking...", "info");
+
+        try {
+          const res = await fetch("/api/move", {
+            method: "POST",
+
+            headers: {
+              "Content-Type": "application/json",
+            },
+
+            body: JSON.stringify({
+              fen: fenBeforeMove,
+              move_uci: move.from + move.to + (move.promotion || ""),
+              tier: currentTier,
+            }),
+          });
+
+          if (!res.ok) {
+            const err = await res.json();
+
+            setStatus(`error: ${err.detail}`, "error");
+
+            thinking = false;
+
+            return;
+          }
+
+          const data = await res.json();
+
+          if (data.model_move_uci) {
+            await sleep(300);
+
+            game.load(data.fen_after_model);
+
+            const wasAtLive = viewIndex === positions.length - 1;
+
+            positions.push(data.fen_after_model);
+
+            sanHistory.push(data.model_move_san);
+
+            if (wasAtLive) {
+              viewIndex = positions.length - 1;
+
+              board.position(data.fen_after_model);
+            }
+
+            renderMoveList();
+            updateNavButtons();
+
+            renderCandidates(data.top_candidates, data.model_move_uci);
+
+            fetchEval(data.fen_after_model);
+          }
+
+          if (data.game_over) {
+            setStatus(`game over: ${resultText()}`, "info");
+
+            showGameOverModal();
+          } else {
+            setStatus("your move", "info");
+          }
+        } catch (e) {
+          setStatus(`connection error: ${e}`, "error");
+        } finally {
+          thinking = false;
+        }
+      }
+
+      function onDrop(source, target) {
+        if (source === target) {
+          return "snapback";
+        }
+
+        clearHighlights();
+        selectedSquare = null;
+
+        if (viewIndex !== positions.length - 1) {
+          return "snapback";
+        }
+
+        const fenBeforeMove = game.fen();
+
+        const move = game.move({
+          from: source,
+          to: target,
+          promotion: "q",
+        });
+
+        if (move === null) {
+          return "snapback";
+        }
+
+        afterHumanMove(move, fenBeforeMove);
+      }
+
+      function onSquareClick(square) {
+        if (thinking || game.game_over()) {
+          return;
+        }
+
+        if (viewIndex !== positions.length - 1) {
+          return;
+        }
+
+        if (game.turn() !== "w") {
+          return;
+        }
+
+        if (selectedSquare) {
+          if (square === selectedSquare) {
+            selectedSquare = null;
+            clearHighlights();
+            return;
+          }
+
+          const legalMoves = game.moves({
+            square: selectedSquare,
+            verbose: true,
+          });
+
+          const legalMove = legalMoves.find((move) => move.to === square);
+
+          if (legalMove) {
+            const fenBeforeMove = game.fen();
+
+            const move = game.move({
+              from: selectedSquare,
+              to: square,
+              promotion: "q",
+            });
+
+            selectedSquare = null;
+            clearHighlights();
+
+            if (move) {
+              board.position(game.fen());
+              afterHumanMove(move, fenBeforeMove);
+            }
+
+            return;
+          }
+
+          const piece = game.get(square);
+
+          if (piece && piece.color === "w") {
+            selectedSquare = square;
+
+            clearHighlights();
+            highlightLegalMoves(square);
+
+            return;
+          }
+
+          selectedSquare = null;
+          clearHighlights();
+
+          return;
+        }
+
+        const piece = game.get(square);
+
+        if (!piece || piece.color !== "w") {
+          return;
+        }
+
+        selectedSquare = square;
+
+        clearHighlights();
+        highlightLegalMoves(square);
+      }
+
+      function onSnapEnd() {
+        board.position(game.fen());
+      }
+
+      board = Chessboard("board", {
+        draggable: true,
+
+        position: "start",
+
+        pieceTheme:
+          "https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png",
+
+        onDragStart,
+        onDrop,
+        onSnapEnd,
+        onMouseoverSquare,
+        onMouseoutSquare,
+      });
+
+      $("#board").on("click", ".square-55d63", function () {
+        const square = $(this).data("square");
+
+        if (square) {
+          onSquareClick(square);
+        }
+      });
+
+      renderMoveList();
+      updateNavButtons();
+      loadTiers();
+    </script>
+  </body>
 </html>

@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import multiprocessing as mp
-import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +10,7 @@ from pathlib import Path
 import chess
 import chess.engine
 from chess_backend.inference import ModelRegistry, compute_model_move
+from chess_shared import find_stockfish
 from chess_training.model import MaiaPolicyNet
 
 from chess_eval.common import classify_result, random_opening
@@ -19,18 +19,6 @@ from chess_eval.stats import MatchResult, elo_estimate
 DEFAULT_STOCKFISH_ELOS = [1320, 1500, 1700, 1900, 2100]
 DEFAULT_GAMES_PER_LEVEL = 100
 DEFAULT_MOVE_TIME_MS = 300
-
-
-def find_stockfish() -> Path:
-    path = shutil.which("stockfish")
-    if path is None:
-        raise RuntimeError(
-            "stockfish not found on PATH. Install it first: "
-            "'brew install stockfish' (macOS), 'apt install stockfish' (Debian/Ubuntu), "
-            "'dnf install stockfish' (Fedora), or download a build from "
-            "https://stockfishchess.org/download/ and make sure it's on PATH."
-        )
-    return Path(path)
 
 
 @dataclass

@@ -1,12 +1,33 @@
 from pathlib import Path
 
 import chess
+import chess.engine
+import pytest
 import torch
+from chess_backend.engine_eval import EngineManager
 from chess_backend.inference import ModelRegistry
 from chess_backend.main import app
 from chess_shared import NUM_MOVES, NUM_PLANES
 from chess_training.model import MaiaPolicyNet
 from fastapi.testclient import TestClient
+
+
+class _FakeUciEngine:
+    def __init__(self, score_cp: int = 42) -> None:
+        self.analyse_calls = 0
+        self.quit_called = False
+        self._score_cp = score_cp
+
+    def analyse(
+        self, board: chess.Board, limit: chess.engine.Limit
+    ) -> dict[str, chess.engine.PovScore]:
+        self.analyse_calls += 1
+        return {
+            "score": chess.engine.PovScore(chess.engine.Cp(self._score_cp), chess.WHITE)
+        }
+
+    def quit(self) -> None:
+        self.quit_called = True
 
 
 def _write_synthetic_checkpoint(
@@ -130,3 +151,77 @@ def test_move_returns_game_over_without_model_reply_on_checkmate(tmp_path: Path)
     assert body["game_over"] is True
     assert body["model_move_uci"] is None
     assert body["result"] == "0-1"
+
+
+def test_eval_returns_available_false_when_stockfish_missing(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def _raise() -> str:
+        raise RuntimeError("stockfish not found")
+
+    monkeypatch.setattr("chess_backend.engine_eval.find_stockfish", _raise)
+
+    import chess_backend.main as main_module
+
+    main_module.engine_manager = EngineManager()
+    client = TestClient(app)
+
+    response = client.post("/api/eval", json={"fen": chess.Board().fen()})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is False
+    assert body["score_cp"] is None
+    assert body["mate"] is None
+
+
+def test_eval_returns_score_when_stockfish_available(monkeypatch: pytest.MonkeyPatch):
+    fake = _FakeUciEngine(score_cp=77)
+    monkeypatch.setattr(
+        "chess_backend.engine_eval.find_stockfish", lambda: "/fake/path"
+    )
+    monkeypatch.setattr(chess.engine.SimpleEngine, "popen_uci", lambda _path: fake)
+
+    import chess_backend.main as main_module
+
+    main_module.engine_manager = EngineManager()
+    client = TestClient(app)
+
+    response = client.post("/api/eval", json={"fen": chess.Board().fen()})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is True
+    assert body["score_cp"] == 77
+    assert body["mate"] is None
+
+
+def test_eval_returns_mate_score(monkeypatch: pytest.MonkeyPatch):
+    class _MateEngine:
+        def analyse(self, board: chess.Board, limit: chess.engine.Limit) -> dict:
+            return {"score": chess.engine.PovScore(chess.engine.Mate(3), chess.WHITE)}
+
+        def quit(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        "chess_backend.engine_eval.find_stockfish", lambda: "/fake/path"
+    )
+    monkeypatch.setattr(
+        chess.engine.SimpleEngine, "popen_uci", lambda _path: _MateEngine()
+    )
+
+    import chess_backend.main as main_module
+
+    main_module.engine_manager = EngineManager()
+    client = TestClient(app)
+
+    response = client.post("/api/eval", json={"fen": chess.Board().fen()})
+    body = response.json()
+    assert body["available"] is True
+    assert body["mate"] == 3
+    assert body["score_cp"] is None
+
+
+def test_eval_rejects_malformed_fen():
+    client = TestClient(app)
+    response = client.post("/api/eval", json={"fen": "not a real fen"})
+    assert response.status_code == 400
