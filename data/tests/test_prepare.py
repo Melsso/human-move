@@ -9,7 +9,6 @@ import zstandard as zstd
 from chess_data.brackets import DEFAULT_BRACKETS, brackets_by_name
 from chess_data.prepare import (
     SourceExhaustedError,
-    _GrowableArrayStore,
     extract_positions,
     main,
     prepare_all_chunks,
@@ -30,8 +29,8 @@ SAMPLE_PGN = """\
 [Event "Rated Rapid game"]
 [White "c"]
 [Black "d"]
-[WhiteElo "2250"]
-[BlackElo "2290"]
+[WhiteElo "1950"]
+[BlackElo "1990"]
 [Termination "Normal"]
 
 1. d4 d5 2. c4 e6 3. Nc3 Nf6 4. Bg5 Be7 5. e3 O-O 6. Nf3 h6 0-1
@@ -78,12 +77,10 @@ def test_process_chunk_writes_separate_files_per_matched_bracket(
     )
 
     assert counts["1000"] > 0
-    assert counts["2000"] > 0
-    assert counts["1500"] == 0
+    assert counts["1500"] > 0
 
     assert (out_dir / "bucket_1000_1.npz").exists()
-    assert (out_dir / "bucket_2000_1.npz").exists()
-    assert not (out_dir / "bucket_1500_1.npz").exists()
+    assert (out_dir / "bucket_1500_1.npz").exists()
 
     data_1000 = np.load(out_dir / "bucket_1000_1.npz")
     assert data_1000["boards"].shape[1:] == (NUM_PLANES, 8, 8)
@@ -106,7 +103,7 @@ def test_process_chunk_with_zst_source(tmp_path: Path) -> None:
         skip_first_n_plies=2,
     )
     assert counts["1000"] > 0
-    assert counts["2000"] > 0
+    assert counts["1500"] > 0
 
 
 def test_process_chunk_raises_source_exhausted_when_skip_exceeds_file(
@@ -137,7 +134,7 @@ def test_process_chunk_handles_partial_final_chunk_without_error(
         skip_first_n_plies=2,
     )
     assert counts["1000"] > 0
-    assert counts["2000"] > 0
+    assert counts["1500"] > 0
 
 
 def test_process_chunk_cleans_up_its_temp_directory(tmp_path: Path) -> None:
@@ -245,37 +242,8 @@ def test_prepare_all_chunks_with_bucket_subset(tmp_path: Path) -> None:
     )
 
     assert (out_dir / "bucket_1000_1.npz").exists()
-    assert not (out_dir / "bucket_2000_1.npz").exists()
-    assert list(out_dir.glob("bucket_2000_*.npz")) == []
-
-
-def test_growable_array_store_grows_and_preserves_data(tmp_path: Path) -> None:
-    store = _GrowableArrayStore(
-        row_shape=(3,), dtype=np.float32, initial_capacity=2, tmp_dir=tmp_path
-    )
-    rows = [np.array([i, i + 1, i + 2], dtype=np.float32) for i in range(10)]
-    for row in rows:
-        store.append(row)
-
-    assert store.count == 10
-    result = store.finalized()
-    assert result.shape == (10, 3)
-    for i, row in enumerate(rows):
-        assert np.array_equal(result[i], row)
-
-    store.cleanup()
-
-
-def test_growable_array_store_cleanup_removes_backing_file(tmp_path: Path) -> None:
-    store = _GrowableArrayStore(
-        row_shape=(2,), dtype=np.float32, initial_capacity=2, tmp_dir=tmp_path
-    )
-    store.append(np.array([1.0, 2.0], dtype=np.float32))
-    backing_path = store._path
-    assert backing_path.exists()
-
-    store.cleanup()
-    assert not backing_path.exists()
+    assert not (out_dir / "bucket_1500_1.npz").exists()
+    assert list(out_dir.glob("bucket_1500_*.npz")) == []
 
 
 def test_cli_runs_end_to_end_and_produces_expected_files(
@@ -291,7 +259,7 @@ def test_cli_runs_end_to_end_and_produces_expected_files(
     main()
 
     assert (out_dir / "bucket_1000_1.npz").exists()
-    assert (out_dir / "bucket_2000_1.npz").exists()
+    assert (out_dir / "bucket_1500_1.npz").exists()
 
 
 def test_cli_respects_buckets_flag(
@@ -317,7 +285,7 @@ def test_cli_respects_buckets_flag(
     main()
 
     assert (out_dir / "bucket_1000_1.npz").exists()
-    assert not (out_dir / "bucket_2000_1.npz").exists()
+    assert not (out_dir / "bucket_1500_1.npz").exists()
 
 
 def test_cli_rejects_unknown_bucket_name(

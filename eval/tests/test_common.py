@@ -1,5 +1,11 @@
 import chess
-from chess_eval.common import classify_result, random_opening
+import pytest
+from chess_eval.common import (
+    classify_result,
+    random_opening,
+    require_tiers,
+    subject_to_move,
+)
 
 
 def test_random_opening_produces_legal_position() -> None:
@@ -53,3 +59,18 @@ def test_classify_result_draw_regardless_of_color() -> None:
 
 def test_classify_result_unfinished_game_counts_as_draw() -> None:
     assert classify_result("*", subject_is_white=True) == "DRAW"
+
+
+def test_subject_to_move_follows_colour() -> None:
+    board = chess.Board()
+    assert subject_to_move(board, subject_is_white=True) is True
+    assert subject_to_move(board, subject_is_white=False) is False
+
+
+def test_require_tiers_accepts_configured_tiers() -> None:
+    require_tiers(["1000", "1500", "2000"])
+
+
+def test_require_tiers_rejects_unknown_tier() -> None:
+    with pytest.raises(ValueError, match="unknown tier"):
+        require_tiers(["1000", "9999"])

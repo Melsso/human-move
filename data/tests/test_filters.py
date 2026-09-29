@@ -2,11 +2,7 @@ import io
 
 import chess.pgn
 from chess_data.brackets import EloBracket
-from chess_data.filters import (
-    MultiBucketGameBuilder,
-    game_average_elo,
-    should_keep_game,
-)
+from chess_data.filters import MultiBucketGameBuilder, should_keep_game
 
 RATED_GOOD_GAME = """\
 [Event "Rated Rapid game"]
@@ -75,11 +71,6 @@ def _parse_headers_only(pgn_text: str) -> chess.pgn.Headers:
     headers = chess.pgn.read_headers(io.StringIO(pgn_text))
     assert headers is not None
     return headers
-
-
-def test_average_elo() -> None:
-    game = _parse(RATED_GOOD_GAME)
-    assert game_average_elo(game.headers) == 1015.0
 
 
 def test_keeps_rated_game_in_range() -> None:

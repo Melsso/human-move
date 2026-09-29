@@ -156,7 +156,10 @@ dependencies = [
     { name = "chess-shared" },
     { name = "chess-training" },
     { name = "fastapi" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "python-chess" },
+    { name = "torch" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -170,7 +173,9 @@ requires-dist = [
     { name = "chess-shared", editable = "shared" },
     { name = "chess-training", editable = "training" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "python-chess", specifier = ">=1.999" },
+    { name = "torch", specifier = ">=2.3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
 
@@ -207,7 +212,10 @@ dependencies = [
     { name = "chess-backend" },
     { name = "chess-shared" },
     { name = "chess-training" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "python-chess" },
+    { name = "torch" },
 ]
 
 [package.metadata]
@@ -215,7 +223,9 @@ requires-dist = [
     { name = "chess-backend", editable = "backend" },
     { name = "chess-shared", editable = "shared" },
     { name = "chess-training", editable = "training" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "python-chess", specifier = ">=1.999" },
+    { name = "torch", specifier = ">=2.3" },
 ]
 
 [[package]]
@@ -243,7 +253,6 @@ dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "torch" },
-    { name = "tqdm" },
 ]
 
 [package.metadata]
@@ -251,7 +260,6 @@ requires-dist = [
     { name = "chess-shared", editable = "shared" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "torch", specifier = ">=2.3" },
-    { name = "tqdm", specifier = ">=4.66" },
 ]
 
 [[package]]

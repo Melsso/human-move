@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import io
-import os
 import tempfile
 from pathlib import Path
 from typing import TextIO
@@ -10,25 +8,22 @@ from typing import TextIO
 import chess
 import chess.pgn
 import numpy as np
-import numpy.typing as npt
-import zstandard as zstd
 from chess_shared import encode_board, perspective_move_to_index
 from tqdm import tqdm
 
+from chess_data.array_store import GrowableArrayStore
 from chess_data.brackets import DEFAULT_BRACKETS, EloBracket, brackets_by_name
 from chess_data.filters import MultiBucketGameBuilder
+from chess_data.pgn_io import open_pgn_stream
+
+DEFAULT_MAX_POSITIONS_PER_GAME = 40
+DEFAULT_SKIP_FIRST_N_PLIES = 10
+LOG_EVERY = 2000
+INITIAL_CAPACITY = 50_000
 
 
 class SourceExhaustedError(RuntimeError):
     pass
-
-
-def _open_pgn_stream(path: Path) -> TextIO:
-    if path.suffix == ".zst":
-        dctx = zstd.ZstdDecompressor()
-        stream_reader = dctx.stream_reader(path.open("rb"))
-        return io.TextIOWrapper(stream_reader, encoding="utf-8", errors="replace")
-    return open(path, encoding="utf-8", errors="replace")
 
 
 class _TrackingVisitorFactory:
@@ -40,71 +35,50 @@ class _TrackingVisitorFactory:
         self.last_instance = MultiBucketGameBuilder(self._brackets)
         return self.last_instance
 
+    @property
+    def last_matched_bracket(self) -> EloBracket | None:
+        if self.last_instance is None:
+            return None
+        return self.last_instance.matched_bracket
 
-class _GrowableArrayStore:
+
+class _BucketBuffer:
     def __init__(
-        self,
-        row_shape: tuple[int, ...],
-        dtype: npt.DTypeLike,
-        initial_capacity: int,
-        tmp_dir: Path,
+        self, board_shape: tuple[int, ...], initial_capacity: int, tmp_dir: Path
     ) -> None:
-        self._row_shape = row_shape
-        self._dtype = dtype
-        self._tmp_dir = tmp_dir
-        self._capacity = max(initial_capacity, 1)
-        self._count = 0
-        self._path = self._new_backing_path()
-        self._array = np.memmap(
-            self._path, dtype=dtype, mode="w+", shape=(self._capacity, *row_shape)
+        self.boards = GrowableArrayStore(
+            board_shape, np.float32, initial_capacity, tmp_dir
         )
-
-    def _new_backing_path(self) -> Path:
-        fd, name = tempfile.mkstemp(dir=self._tmp_dir, suffix=".dat")
-        os.close(fd)
-        return Path(name)
+        self.moves = GrowableArrayStore((), np.int64, initial_capacity, tmp_dir)
+        self.game_ids = GrowableArrayStore((), np.int64, initial_capacity, tmp_dir)
 
     @property
     def count(self) -> int:
-        return self._count
+        return self.moves.count
 
-    def append(self, row: object) -> None:
-        if self._count >= self._capacity:
-            self._grow()
-        self._array[self._count] = row
-        self._count += 1
+    def append(self, board: np.ndarray, move: int, game_id: int) -> None:
+        self.boards.append(board)
+        self.moves.append(move)
+        self.game_ids.append(game_id)
 
-    def _grow(self) -> None:
-        new_capacity = self._capacity * 2
-        new_path = self._new_backing_path()
-        new_array = np.memmap(
-            new_path,
-            dtype=self._dtype,
-            mode="w+",
-            shape=(new_capacity, *self._row_shape),
+    def save(self, path: Path) -> None:
+        np.savez_compressed(
+            path,
+            boards=self.boards.finalized(),
+            moves=self.moves.finalized(),
+            game_ids=self.game_ids.finalized(),
         )
-        new_array[: self._count] = self._array[: self._count]
-        new_array.flush()
-
-        old_path = self._path
-        self._array = new_array
-        self._path = new_path
-        self._capacity = new_capacity
-        old_path.unlink(missing_ok=True)
-
-    def finalized(self) -> np.ndarray:
-        self._array.flush()
-        return self._array[: self._count]
 
     def cleanup(self) -> None:
-        del self._array
-        self._path.unlink(missing_ok=True)
+        self.boards.cleanup()
+        self.moves.cleanup()
+        self.game_ids.cleanup()
 
 
 def extract_positions(
     game: chess.pgn.Game,
-    max_positions_per_game: int = 60,
-    skip_first_n_plies: int = 10,
+    max_positions_per_game: int = DEFAULT_MAX_POSITIONS_PER_GAME,
+    skip_first_n_plies: int = DEFAULT_SKIP_FIRST_N_PLIES,
 ) -> list[tuple[np.ndarray, int]]:
     board = game.board()
     candidates: list[tuple[np.ndarray, int]] = []
@@ -123,20 +97,30 @@ def extract_positions(
     return [candidates[i] for i in sample_indices]
 
 
+def _skip_games(stream: TextIO, count: int, chunk: int) -> None:
+    with tqdm(
+        total=count, desc=f"chunk {chunk}: skipping to start", unit="game"
+    ) as bar:
+        for skipped in range(count):
+            if chess.pgn.read_headers(stream) is None:
+                raise SourceExhaustedError(
+                    f"skip_games={count} but the file only has {skipped} "
+                    f"games -- nothing left to process for chunk {chunk}."
+                )
+            bar.update(1)
+
+
 def process_chunk(
     pgn_path: Path,
     out_dir: Path,
     brackets: list[EloBracket],
     chunk: int,
     chunk_size: int,
-    max_positions_per_game: int = 60,
-    skip_first_n_plies: int = 10,
-    log_every: int = 2000,
-    initial_capacity: int = 50_000,
+    max_positions_per_game: int = DEFAULT_MAX_POSITIONS_PER_GAME,
+    skip_first_n_plies: int = DEFAULT_SKIP_FIRST_N_PLIES,
 ) -> dict[str, int]:
     skip_games = (chunk - 1) * chunk_size
     games_seen = 0
-
     visitor_factory = _TrackingVisitorFactory(brackets)
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -145,91 +129,47 @@ def process_chunk(
         dir=out_dir, prefix=".prepare-tmp-"
     ) as tmp_dir_name:
         tmp_dir = Path(tmp_dir_name)
-        boards_stores: dict[str, _GrowableArrayStore] = {}
-        moves_stores: dict[str, _GrowableArrayStore] = {}
-        game_id_stores: dict[str, _GrowableArrayStore] = {}
+        buffers: dict[str, _BucketBuffer] = {}
 
-        with _open_pgn_stream(pgn_path) as f:
+        with open_pgn_stream(pgn_path) as stream:
             if skip_games > 0:
-                skip_pbar = tqdm(
-                    total=skip_games,
-                    desc=f"chunk {chunk}: skipping to start",
-                    unit="game",
-                )
-                skipped = 0
-                while skipped < skip_games:
-                    headers = chess.pgn.read_headers(f)
-                    if headers is None:
-                        skip_pbar.close()
-                        raise SourceExhaustedError(
-                            f"skip_games={skip_games} but the file only has {skipped} "
-                            f"games -- nothing left to process for chunk {chunk}."
-                        )
-                    skipped += 1
-                    skip_pbar.update(1)
-                skip_pbar.close()
+                _skip_games(stream, skip_games, chunk)
 
-            pbar = tqdm(desc=f"chunk {chunk}", unit="game", total=chunk_size)
-            while games_seen < chunk_size:
-                game = chess.pgn.read_game(f, Visitor=visitor_factory)
-                if game is None:
-                    break
-                games_seen += 1
-                pbar.update(1)
+            with tqdm(desc=f"chunk {chunk}", unit="game", total=chunk_size) as pbar:
+                while games_seen < chunk_size:
+                    game = chess.pgn.read_game(stream, Visitor=visitor_factory)
+                    if game is None:
+                        break
+                    games_seen += 1
+                    pbar.update(1)
 
-                matched_bracket = visitor_factory.last_instance.matched_bracket  # type: ignore[union-attr]
-                if matched_bracket is not None and game.mainline_moves():
-                    name = matched_bracket.name
-                    global_game_id = skip_games + games_seen
-                    for board_tensor, move_idx in extract_positions(
-                        game, max_positions_per_game, skip_first_n_plies
-                    ):
-                        if name not in boards_stores:
-                            boards_stores[name] = _GrowableArrayStore(
-                                board_tensor.shape,
-                                np.float32,
-                                initial_capacity,
-                                tmp_dir,
+                    bracket = visitor_factory.last_matched_bracket
+                    if bracket is not None and game.mainline_moves():
+                        for board_tensor, move_idx in extract_positions(
+                            game, max_positions_per_game, skip_first_n_plies
+                        ):
+                            buffer = buffers.get(bracket.name)
+                            if buffer is None:
+                                buffer = _BucketBuffer(
+                                    board_tensor.shape, INITIAL_CAPACITY, tmp_dir
+                                )
+                                buffers[bracket.name] = buffer
+                            buffer.append(
+                                board_tensor, move_idx, skip_games + games_seen
                             )
-                            moves_stores[name] = _GrowableArrayStore(
-                                (), np.int64, initial_capacity, tmp_dir
-                            )
-                            game_id_stores[name] = _GrowableArrayStore(
-                                (), np.int64, initial_capacity, tmp_dir
-                            )
-                        boards_stores[name].append(board_tensor)
-                        moves_stores[name].append(move_idx)
-                        game_id_stores[name].append(global_game_id)
 
-                if games_seen % log_every == 0:
-                    pbar.set_postfix(
-                        {name: s.count for name, s in moves_stores.items()}
-                    )
-            pbar.close()
+                    if games_seen % LOG_EVERY == 0:
+                        pbar.set_postfix({n: b.count for n, b in buffers.items()})
 
         counts: dict[str, int] = {}
         for bracket in brackets:
-            name = bracket.name
-            if name not in boards_stores or boards_stores[name].count == 0:
-                counts[name] = 0
+            buffer = buffers.get(bracket.name)
+            if buffer is None or buffer.count == 0:
+                counts[bracket.name] = 0
                 continue
-
-            boards_view = boards_stores[name].finalized()
-            moves_view = moves_stores[name].finalized()
-            game_ids_view = game_id_stores[name].finalized()
-            counts[name] = boards_stores[name].count
-
-            out_path = out_dir / f"bucket_{name}_{chunk}.npz"
-            np.savez_compressed(
-                out_path,
-                boards=boards_view,
-                moves=moves_view,
-                game_ids=game_ids_view,
-            )
-
-            boards_stores[name].cleanup()
-            moves_stores[name].cleanup()
-            game_id_stores[name].cleanup()
+            counts[bracket.name] = buffer.count
+            buffer.save(out_dir / f"bucket_{bracket.name}_{chunk}.npz")
+            buffer.cleanup()
 
     return counts
 
@@ -240,8 +180,8 @@ def prepare_all_chunks(
     brackets: list[EloBracket],
     chunk_size: int,
     max_chunks: int | None = None,
-    max_positions_per_game: int = 60,
-    skip_first_n_plies: int = 10,
+    max_positions_per_game: int = DEFAULT_MAX_POSITIONS_PER_GAME,
+    skip_first_n_plies: int = DEFAULT_SKIP_FIRST_N_PLIES,
 ) -> None:
     chunk = 1
     totals: dict[str, int] = {b.name: 0 for b in brackets}
@@ -294,9 +234,7 @@ def prepare_all_chunks(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser()
     parser.add_argument("pgn_path", type=Path, help="Path to .pgn or .pgn.zst file")
     parser.add_argument(
         "out_dir",
@@ -307,9 +245,8 @@ def main() -> None:
         "--chunk-size",
         type=int,
         required=True,
-        help="Games per chunk, scanned across ALL buckets together. Run "
-        "chess_data.count_games first if you want to know the total game "
-        "count before picking a value.",
+        help="Games per chunk, scanned across all buckets together. Run "
+        "chess_data.count_games first to know the total game count.",
     )
     parser.add_argument(
         "--buckets",
@@ -323,11 +260,14 @@ def main() -> None:
         "--max-chunks",
         type=int,
         default=None,
-        help="Stop after this many chunks (useful for a quick sample run instead "
-        "of processing the whole file; default: process until exhausted).",
+        help="Stop after this many chunks (default: process until exhausted).",
     )
-    parser.add_argument("--max-positions-per-game", type=int, default=40)
-    parser.add_argument("--skip-first-n-plies", type=int, default=10)
+    parser.add_argument(
+        "--max-positions-per-game", type=int, default=DEFAULT_MAX_POSITIONS_PER_GAME
+    )
+    parser.add_argument(
+        "--skip-first-n-plies", type=int, default=DEFAULT_SKIP_FIRST_N_PLIES
+    )
     args = parser.parse_args()
 
     bucket_names = args.buckets.split(",") if args.buckets else None

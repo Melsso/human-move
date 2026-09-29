@@ -2,23 +2,14 @@ from __future__ import annotations
 
 import chess.pgn
 
-from chess_data.brackets import EloBracket
-
-
-def game_average_elo(headers: chess.pgn.Headers) -> float | None:
-    try:
-        white_elo = int(headers.get("WhiteElo", ""))
-        black_elo = int(headers.get("BlackElo", ""))
-    except ValueError:
-        return None
-    return (white_elo + black_elo) / 2
+from chess_data.brackets import DEFAULT_MAX_ELO_GAP, EloBracket
 
 
 def should_keep_game(
     headers: chess.pgn.Headers,
     min_elo: int,
     max_elo: int,
-    max_elo_gap: int = 100,
+    max_elo_gap: int = DEFAULT_MAX_ELO_GAP,
 ) -> bool:
     if headers.get("Variant", "Standard") != "Standard":
         return False

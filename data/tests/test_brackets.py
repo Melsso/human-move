@@ -5,8 +5,8 @@ from chess_data.brackets import DEFAULT_BRACKETS, EloBracket, brackets_by_name
 
 
 def test_brackets_by_name_preserves_default_order_regardless_of_input_order() -> None:
-    result = brackets_by_name(["2000", "1000"])
-    assert [b.name for b in result] == ["1000", "2000"]
+    result = brackets_by_name(["1500", "1000"])
+    assert [b.name for b in result] == ["1000", "1500"]
 
 
 def test_brackets_by_name_none_returns_all_defaults() -> None:

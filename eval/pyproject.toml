@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "chess-eval"
 version = "0.1.0"
-description = "Evaluates trained rating-bucket models: Stockfish Elo calibration and inter-bucket round robin."
+description = "Evaluates the rating tiers: Stockfish Elo calibration and inter-tier round robin."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,6 +13,8 @@ dependencies = [
     "chess-training",
     "chess-backend",
     "python-chess>=1.999",
+    "numpy>=1.26",
+    "torch>=2.3",
 ]
 
 [tool.uv.sources]

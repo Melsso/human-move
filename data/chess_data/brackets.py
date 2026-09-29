@@ -2,19 +2,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+DEFAULT_MAX_ELO_GAP = 200
+
 
 @dataclass(frozen=True)
 class EloBracket:
     name: str
     min_elo: int
     max_elo: int
-    max_elo_gap: int = 200
+    max_elo_gap: int = DEFAULT_MAX_ELO_GAP
 
 
 DEFAULT_BRACKETS: tuple[EloBracket, ...] = (
     EloBracket("1000", 900, 1100),
     EloBracket("1500", 1900, 2100),
-    EloBracket("2000", 2100, 2500),
 )
 
 
