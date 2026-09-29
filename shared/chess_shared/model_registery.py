@@ -1,22 +1,12 @@
-from __future__ import annotations
-
 import re
 from pathlib import Path
 from typing import TypedDict
 
-import chess
 import torch
-from chess_shared import (
-    NUM_MOVES,
-    NUM_PLANES,
-    encode_board,
-    legal_move_mask,
-    masked_softmax,
-    select_move_index,
-    top_k_moves,
-)
-from chess_shared.move_encoding import perspective_index_to_move
 from chess_training.model import MaiaPolicyNet
+
+from chess_shared.board_encoding import NUM_PLANES
+from chess_shared.move_encoding import NUM_MOVES
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_CHECKPOINTS_DIR = REPO_ROOT / "training" / "checkpoints"
@@ -121,23 +111,3 @@ class ModelRegistry:
     def get_meta(self, tier: str) -> CheckpointMeta:
         self.get_model(tier)
         return self._meta[tier]
-
-
-@torch.no_grad()
-def compute_model_move(
-    model: MaiaPolicyNet, board: chess.Board, temperature: float = 0.0, top_k: int = 5
-) -> tuple[chess.Move, list[Candidate]]:
-    board_tensor = torch.from_numpy(encode_board(board)).unsqueeze(0)
-    logits = model(board_tensor).squeeze(0).numpy()
-
-    mask = legal_move_mask(board)
-    probs = masked_softmax(logits, mask)
-
-    candidates: list[Candidate] = []
-    for idx, prob in top_k_moves(probs, k=top_k):
-        move = perspective_index_to_move(idx, board)
-        candidates.append({"uci": move.uci(), "san": board.san(move), "prob": prob})
-
-    move_idx = select_move_index(probs, temperature=temperature)
-    chosen_move = perspective_index_to_move(move_idx, board)
-    return chosen_move, candidates

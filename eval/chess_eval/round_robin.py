@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import chess
-from chess_backend.inference import ModelRegistry, compute_model_move
+from chess_shared import ModelRegistry, compute_model_move
 from chess_training.model import MaiaPolicyNet
 
 from chess_eval.common import classify_result, random_opening

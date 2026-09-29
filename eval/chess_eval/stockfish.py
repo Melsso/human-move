@@ -9,8 +9,7 @@ from pathlib import Path
 
 import chess
 import chess.engine
-from chess_backend.inference import ModelRegistry, compute_model_move
-from chess_shared import find_stockfish
+from chess_shared import ModelRegistry, compute_model_move, find_stockfish
 from chess_training.model import MaiaPolicyNet
 
 from chess_eval.common import classify_result, random_opening
@@ -19,6 +18,8 @@ from chess_eval.stats import MatchResult, elo_estimate
 DEFAULT_STOCKFISH_ELOS = [1320, 1500, 1700, 1900, 2100]
 DEFAULT_GAMES_PER_LEVEL = 100
 DEFAULT_MOVE_TIME_MS = 300
+
+MoveKwargs = dict[str, float | int]
 
 
 @dataclass
@@ -38,6 +39,7 @@ def play_game(
     seed: int,
     move_time_ms: int,
     threads: int,
+    move_kwargs: MoveKwargs,
 ) -> str:
     board = random_opening(seed=seed)
     engine = chess.engine.SimpleEngine.popen_uci(str(stockfish_path))
@@ -52,7 +54,7 @@ def play_game(
                 else board.turn == chess.BLACK
             )
             if model_turn:
-                move, _ = compute_model_move(model, board, temperature=0.0, top_k=1)
+                move, _ = compute_model_move(model, board, top_k=1, **move_kwargs)  # type: ignore[arg-type]
                 if move not in board.legal_moves:
                     raise RuntimeError(
                         f"model produced illegal move {move} on position {board.fen()}"
@@ -71,15 +73,22 @@ def play_game(
 
 _worker_model: MaiaPolicyNet | None = None
 _worker_stockfish_path: Path | None = None
+_worker_move_kwargs: MoveKwargs = {}
 
 
-def _init_worker(tier: str, checkpoints_dir: str | None, stockfish_path: str) -> None:
-    global _worker_model, _worker_stockfish_path
+def _init_worker(
+    tier: str,
+    checkpoints_dir: str | None,
+    stockfish_path: str,
+    move_kwargs: MoveKwargs,
+) -> None:
+    global _worker_model, _worker_stockfish_path, _worker_move_kwargs
     registry = (
         ModelRegistry(Path(checkpoints_dir)) if checkpoints_dir else ModelRegistry()
     )
     _worker_model = registry.get_model(tier)
     _worker_stockfish_path = Path(stockfish_path)
+    _worker_move_kwargs = move_kwargs
 
 
 def _play_single_game(args: tuple[int, int, int, int]) -> GameOutcome:
@@ -99,6 +108,7 @@ def _play_single_game(args: tuple[int, int, int, int]) -> GameOutcome:
             seed,
             move_time_ms,
             threads,
+            _worker_move_kwargs,
         )
     except chess.engine.EngineError as e:
         return GameOutcome(game_number, model_color, "ERROR", "*", error=str(e))
@@ -116,6 +126,7 @@ def run_match(
     move_time_ms: int = DEFAULT_MOVE_TIME_MS,
     threads: int = 1,
     workers: int | None = None,
+    move_kwargs: MoveKwargs | None = None,
 ) -> tuple[MatchResult, list[GameOutcome]]:
     workers = workers or max(1, min(mp.cpu_count(), games))
     jobs = [(i, stockfish_elo, move_time_ms, threads) for i in range(games)]
@@ -129,6 +140,7 @@ def run_match(
             tier,
             str(checkpoints_dir) if checkpoints_dir else None,
             str(stockfish_path),
+            move_kwargs or {},
         ),
     ) as pool:
         for outcome in pool.imap_unordered(_play_single_game, jobs):
@@ -166,16 +178,35 @@ def calibrate(
     threads: int = 1,
     workers: int | None = None,
     out_path: Path | None = None,
+    temperature: float = 0.0,
+    search_depth: int = 0,
+    search_weight: float = 1.0,
+    search_top_k: int = 6,
+    search_max_nodes: int = 0,
 ) -> dict[str, object]:
     stockfish_elos = stockfish_elos or DEFAULT_STOCKFISH_ELOS
     stockfish_path = find_stockfish()
-    print(f"stockfish: {stockfish_path}")
-    print(f"model tier: {tier}")
-    print(f"games per level: {games_per_level}, move time: {move_time_ms}ms\n")
+    move_kwargs: MoveKwargs = {
+        "temperature": temperature,
+        "search_depth": search_depth,
+        "search_weight": search_weight,
+        "search_max_nodes": search_max_nodes,
+        "search_top_k": search_top_k,
+    }
+    print(
+        f"STOCKFISH {stockfish_path}\n"
+        f"TIER: {tier}\n"
+        f"Games/lvl: {games_per_level}, "
+        f"Move Time: {move_time_ms}, "
+        f"Depth: {search_depth}, "
+        f"Weight: {search_weight}, "
+        f"Top K: {search_top_k}, "
+        f"Temp: {temperature}\n"
+    )
 
     level_results = []
     for elo in stockfish_elos:
-        print(f"=== stockfish {elo} ===")
+        print(f"=== STOCKFISH {elo} ===")
         start = time.time()
         match_result, _outcomes = run_match(
             stockfish_path,
@@ -186,6 +217,7 @@ def calibrate(
             move_time_ms,
             threads,
             workers,
+            move_kwargs,
         )
         elapsed = time.time() - start
         estimate = elo_estimate(match_result)
@@ -217,6 +249,11 @@ def calibrate(
         "tier": tier,
         "games_per_level": games_per_level,
         "move_time_ms": move_time_ms,
+        "temperature": temperature,
+        "search_depth": search_depth,
+        "search_weight": search_weight,
+        "search_max_nodes": search_max_nodes,
+        "search-_top_k": search_top_k,
         "levels": level_results,
     }
 
@@ -252,6 +289,39 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--workers", type=int, default=None)
     parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="0.0 = always the top move; higher = more random (weaker)",
+    )
+    parser.add_argument(
+        "--search-depth",
+        type=int,
+        default=0,
+        help="0 = pure policy (no search). 1-3 = plies of alpha-beta re-ranking "
+        "over the network's top moves (see chess_shared/search.py)",
+    )
+    parser.add_argument(
+        "--search-weight",
+        type=float,
+        default=1.0,
+        help="How much the search eval (in pawns) counts vs the policy's "
+        "log-probability. 0 = ignore search; large = mostly search",
+    )
+    parser.add_argument(
+        "--search-max-nodes",
+        type=int,
+        default=0,
+        help="Safety cap on nodes per move (0 = unlimited). When hit, the search "
+        "falls back to the last fully completed depth.",
+    )
+    parser.add_argument(
+        "--search-top-k",
+        type=int,
+        default=6,
+        help="How many of the network's top moves get searched at the root",
+    )
+    parser.add_argument(
         "--out", type=Path, default=None, help="Save results as JSON to this path"
     )
     args = parser.parse_args()
@@ -265,6 +335,11 @@ def main() -> None:
         threads=args.threads,
         workers=args.workers,
         out_path=args.out,
+        temperature=args.temperature,
+        search_depth=args.search_depth,
+        search_weight=args.search_weight,
+        search_max_nodes=args.search_max_nodes,
+        search_top_k=args.search_top_k,
     )
 
 

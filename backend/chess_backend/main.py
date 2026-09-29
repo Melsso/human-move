@@ -5,12 +5,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import chess
-import chess.engine
+from chess_shared import ModelRegistry, TierNotFoundError, compute_model_move
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 from chess_backend.engine_eval import EngineManager, EngineUnavailableError
-from chess_backend.inference import ModelRegistry, TierNotFoundError, compute_model_move
 from chess_backend.schemas import (
     EvalRequest,
     EvalResponse,

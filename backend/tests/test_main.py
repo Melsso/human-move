@@ -5,9 +5,8 @@ import chess.engine
 import pytest
 import torch
 from chess_backend.engine_eval import EngineManager
-from chess_backend.inference import ModelRegistry
 from chess_backend.main import app
-from chess_shared import NUM_MOVES, NUM_PLANES
+from chess_shared import NUM_MOVES, NUM_PLANES, ModelRegistry
 from chess_training.model import MaiaPolicyNet
 from fastapi.testclient import TestClient
 
