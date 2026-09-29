@@ -20,7 +20,6 @@ class MoveRequest(BaseModel):
     fen: str
     move_uci: str
     tier: str
-    temperature: float = 0.0
 
 
 class MoveResponse(BaseModel):

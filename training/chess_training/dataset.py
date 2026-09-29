@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from collections.abc import Iterator
 
 import numpy as np
@@ -51,27 +50,11 @@ def make_train_val_split(
     batch_size: int,
     val_fraction: float = 0.05,
     seed: int = 0,
-    compact_boards: bool = False,
 ) -> tuple[InMemoryBatchLoader, InMemoryBatchLoader]:
-    data = np.load(npz_path, mmap_mode="r")
+    data = np.load(npz_path)
     boards = data["boards"]
     moves = data["moves"]
-
-    if not isinstance(boards, np.memmap):
-        warnings.warn(
-            f"'{npz_path}' is a .npz file, which can never be memory-mapped "
-            "regardless of compression -- the full array was loaded into RAM "
-            f"instead ({boards.nbytes / 1e9:.2f}GB for boards alone). If this bucket "
-            "is uncomfortably large for your machine's RAM, process your source data "
-            "in smaller chunks instead (see chess_data.prepare's --skip-games), "
-            "rather than trying to fix this via mmap.",
-            stacklevel=2,
-        )
-
     game_ids = data["game_ids"]
-
-    if compact_boards and boards.dtype == np.float32:
-        boards = boards.astype(np.float16)
 
     boards_t = torch.from_numpy(np.ascontiguousarray(boards))
     moves_t = torch.from_numpy(np.ascontiguousarray(moves).astype(np.int64))
@@ -89,9 +72,7 @@ def make_train_val_split(
     print(
         f"  split: {len(unique_games)} games "
         f"({len(unique_games) - n_val_games} train / {n_val_games} val) -> "
-        f"{len(train_indices)} train positions / {len(val_indices)} val positions "
-        f"({len(val_indices) / (len(train_indices) + len(val_indices)):.1%} val by "
-        "position -- may differ a bit from val_fraction since games vary in length)"
+        f"{len(train_indices)} train positions / {len(val_indices)} val positions"
     )
 
     train_loader = InMemoryBatchLoader(

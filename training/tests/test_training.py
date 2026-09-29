@@ -134,16 +134,6 @@ def test_train_loader_shuffles_between_epochs_but_is_a_permutation(tmp_path: Pat
     assert epoch1 != epoch2
 
 
-def test_compact_boards_stores_float16(tmp_path: Path):
-    npz_path = tmp_path / "synthetic.npz"
-    _write_synthetic_npz(npz_path, n=20)
-
-    train_loader, _ = make_train_val_split(
-        str(npz_path), batch_size=4, val_fraction=0.2, seed=0, compact_boards=True
-    )
-    assert train_loader.boards.dtype == torch.float16
-
-
 def test_evaluate_runs_and_returns_sane_metrics(tmp_path: Path):
     npz_path = tmp_path / "synthetic.npz"
     _write_synthetic_npz(npz_path, n=64)
@@ -154,9 +144,7 @@ def test_evaluate_runs_and_returns_sane_metrics(tmp_path: Path):
     model = MaiaPolicyNet(NUM_PLANES, NUM_MOVES, num_blocks=1, num_filters=8)
     device = torch.device("cpu")
 
-    loss, top1, top3 = evaluate(
-        model, val_loader, device, amp=False, channels_last=False
-    )
+    loss, top1, top3 = evaluate(model, val_loader, device)
     assert loss > 0
     assert 0.0 <= top1 <= 1.0
     assert 0.0 <= top3 <= 1.0
@@ -347,30 +335,6 @@ def test_save_every_epoch_false_skips_epoch_files_but_keeps_best_and_last(
     assert (out_dir / "last.pt").exists()
 
 
-def test_channels_last_training_runs_and_checkpoint_loads_into_plain_model(
-    tmp_path: Path,
-):
-    npz_path = tmp_path / "synthetic.npz"
-    _write_synthetic_npz(npz_path, n=64)
-    out_dir = tmp_path / "checkpoints"
-
-    train(
-        npz_path=npz_path,
-        out_dir=out_dir,
-        epochs=1,
-        batch_size=8,
-        lr=1e-3,
-        val_fraction=0.25,
-        num_blocks=1,
-        num_filters=8,
-        channels_last=True,
-    )
-
-    checkpoint = torch.load(out_dir / "last.pt", weights_only=True)
-    model = MaiaPolicyNet(NUM_PLANES, NUM_MOVES, num_blocks=1, num_filters=8)
-    model.load_state_dict(checkpoint["model_state_dict"])
-
-
 def test_train_val_split_shares_underlying_arrays_not_duplicated(tmp_path: Path):
     npz_path = tmp_path / "synthetic.npz"
     _write_synthetic_npz(npz_path, n=50)
@@ -380,14 +344,6 @@ def test_train_val_split_shares_underlying_arrays_not_duplicated(tmp_path: Path)
     )
     assert train_loader.boards is val_loader.boards
     assert train_loader.moves is val_loader.moves
-
-
-def test_compressed_npz_triggers_mmap_fallback_warning(tmp_path: Path):
-    npz_path = tmp_path / "synthetic.npz"
-    _write_synthetic_npz(npz_path, n=20)
-
-    with pytest.warns(UserWarning, match="can never be memory-mapped"):
-        make_train_val_split(str(npz_path), batch_size=4, val_fraction=0.2, seed=0)
 
 
 def test_resume_from_picks_up_architecture_from_checkpoint_not_args(tmp_path: Path):

@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import torch
+from chess_shared import NUM_MOVES, NUM_PLANES
 from torch import nn
+
+CHECKPOINT_ENCODING = {"in_planes": NUM_PLANES, "num_moves": NUM_MOVES}
 
 
 class ResidualBlock(nn.Module):
@@ -57,3 +63,27 @@ class MaiaPolicyNet(nn.Module):
         x = self.policy_head(x)
         x = torch.flatten(x, start_dim=1)
         return self.policy_fc(x)
+
+
+def load_checkpoint(path: Path) -> dict[str, Any]:
+    checkpoint: dict[str, Any] = torch.load(path, map_location="cpu", weights_only=True)
+    for key, expected in CHECKPOINT_ENCODING.items():
+        found = checkpoint.get(key)
+        if found is not None and found != expected:
+            raise ValueError(
+                f"checkpoint '{path}' was trained with {key}={found}, but the "
+                f"current encoding uses {key}={expected}. Retrain on data built "
+                "with the current chess_data.prepare."
+            )
+    return checkpoint
+
+
+def model_from_checkpoint(checkpoint: dict[str, Any]) -> MaiaPolicyNet:
+    model = MaiaPolicyNet(
+        in_planes=NUM_PLANES,
+        num_moves=NUM_MOVES,
+        num_blocks=checkpoint["num_blocks"],
+        num_filters=checkpoint["num_filters"],
+    )
+    model.load_state_dict(checkpoint["model_state_dict"])
+    return model

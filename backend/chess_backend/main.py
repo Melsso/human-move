@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import chess
-from chess_shared import ModelRegistry, TierNotFoundError, compute_model_move
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 from chess_backend.engine_eval import EngineManager, EngineUnavailableError
+from chess_backend.inference import ModelRegistry, TierNotFoundError
 from chess_backend.schemas import (
     EvalRequest,
     EvalResponse,
@@ -41,12 +41,10 @@ def health() -> dict[str, str]:
 
 @app.get("/api/tiers", response_model=list[TierInfo])
 def get_tiers() -> list[TierInfo]:
-    tiers = registry.discover_tiers()
-    result = []
-    for name in tiers:
-        meta = registry.get_meta(name)
-        result.append(TierInfo(tier=name, **meta))
-    return result
+    return [
+        TierInfo(tier=name, **registry.get_meta(name))
+        for name in registry.available_tiers()
+    ]
 
 
 @app.post("/api/move", response_model=MoveResponse)
@@ -81,13 +79,11 @@ def make_move(req: MoveRequest) -> MoveResponse:
         )
 
     try:
-        model = registry.get_model(req.tier)
+        player = registry.get_player(req.tier)
     except TierNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
-    model_move, candidates = compute_model_move(
-        model, board, temperature=req.temperature
-    )
+    model_move, candidates = player.choose_move(board)
     model_move_san = board.san(model_move)
     board.push(model_move)
     fen_after_model = board.fen()

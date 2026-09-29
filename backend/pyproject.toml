@@ -5,13 +5,15 @@ build-backend = "uv_build"
 [project]
 name = "chess-backend"
 version = "0.1.0"
-description = "FastAPI inference service: loads a checkpoint per rating tier and serves moves. Reuses chess_training.model directly rather than duplicating the architecture, since serving code must build the exact same network a checkpoint was trained with."
+description = "FastAPI inference service: serves moves for each rating tier using the shared tier configuration."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "chess-shared",
     "chess-training",
     "python-chess>=1.999",
+    "numpy>=1.26",
+    "torch>=2.3",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
 ]
