@@ -55,7 +55,7 @@
 
           <div class="control-bottom">
             <label class="toggle-label" for="evalToggle">
-              <input type="checkbox" id="evalToggle" />
+              <input type="checkbox" id="evalToggle" checked />
               Show eval bar
             </label>
 
@@ -135,6 +135,18 @@
         <div id="promoChoices" class="promo-choices"></div>
         <div class="modal-actions">
           <button id="promoCancelBtn" class="secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="resignModal" class="modal-overlay">
+      <div class="modal-card">
+        <div class="modal-icon">🏳️</div>
+        <div class="modal-title small">Resign this game?</div>
+        <div class="modal-subtitle">This counts as a loss.</div>
+        <div class="modal-actions">
+          <button id="resignCancelBtn" class="secondary">Keep playing</button>
+          <button id="resignConfirmBtn" class="danger">Resign</button>
         </div>
       </div>
     </div>

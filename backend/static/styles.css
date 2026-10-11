@@ -135,6 +135,7 @@ body {
 
 .eval-bar-container.visible {
   display: block;
+  height: min(calc(100cqw - 32px), 100cqh);
 }
 
 .eval-bar-fill {
@@ -614,6 +615,7 @@ button.danger:not(:disabled):hover {
   }
   
   .board-area {
+    align-items: stretch;
     container-type: normal;
     height: auto;
   }
@@ -621,6 +623,14 @@ button.danger:not(:disabled):hover {
   #board {
     flex: 0 1 auto;
     width: min(100%, 720px);
+    height: auto;
+  }
+
+  .board-area:has(.eval-bar-container.visible) #board {
+    width: min(100%, 720px);
+  }
+  
+  .eval-bar-container.visible {
     height: auto;
   }
 

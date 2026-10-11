@@ -4,7 +4,9 @@ A from-scratch chess engine with three human-like playing strengths. Policy netw
 
 Inspired by [Maia Chess](https://www.maiachess.com/) (McIlroy-Young et al., KDD 2020), which trains networks to predict human moves at specific ratings. This is an independent implementation trained on a much smaller, Rapid-only dataset, with a hand-written search layer and a tier system added on top.
 
-<!-- demo GIF goes here -->
+## Demo
+
+![Chess project demo](https://github.com/user-attachments/assets/f679f3ab-0fc4-4b12-a43e-a9aa5d72b628)
 
 ## Results
 

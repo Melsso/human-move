@@ -50,9 +50,9 @@ const gameOverModal = $id("gameOverModal");
 const modalIcon = $id("modalIcon");
 const modalTitle = $id("modalTitle");
 const modalSubtitle = $id("modalSubtitle");
-
 const promotionModal = $id("promotionModal");
 const promoChoices = $id("promoChoices");
+const resignModal = $id("resignModal");
 
 /* ---------- small helpers ---------- */
 
@@ -373,12 +373,19 @@ navEndBtn.addEventListener("click", () => goToPosition(positions.length - 1));
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (pendingPromotion) cancelPromotion();
+    if (resignModal.classList.contains("visible")) closeResignModal();
+    else if (pendingPromotion) cancelPromotion();
     else hideGameOverModal();
     return;
   }
 
-  if (pendingPromotion || gameOverModal.classList.contains("visible")) return;
+  if (
+    pendingPromotion ||
+    gameOverModal.classList.contains("visible") ||
+    resignModal.classList.contains("visible")
+  ) {
+    return;
+  }
   if (document.activeElement && document.activeElement.tagName === "SELECT") {
     return;
   }
@@ -685,9 +692,18 @@ function takeBack() {
   fetchEval(positions[viewIndex]);
 }
 
-function resign() {
+function openResignModal() {
   if (isOver() || uciHistory.length === 0) return;
-  if (!window.confirm("Resign this game?")) return;
+  resignModal.classList.add("visible");
+}
+
+function closeResignModal() {
+  resignModal.classList.remove("visible");
+}
+
+function confirmResign() {
+  closeResignModal();
+  if (isOver() || uciHistory.length === 0) return;
 
   gameId++;
   thinking = false;
@@ -706,6 +722,7 @@ function newGame() {
   selectedSquare = null;
   closePromotionModal();
   hideGameOverModal();
+  closeResignModal();
   showRetry(false);
 
   let choice = colorSelect.value;
@@ -737,7 +754,13 @@ function newGame() {
 
 $id("newGameBtn").addEventListener("click", newGame);
 takebackBtn.addEventListener("click", takeBack);
-resignBtn.addEventListener("click", resign);
+
+resignBtn.addEventListener("click", openResignModal);
+$id("resignCancelBtn").addEventListener("click", closeResignModal);
+$id("resignConfirmBtn").addEventListener("click", confirmResign);
+resignModal.addEventListener("click", (e) => {
+  if (e.target === resignModal) closeResignModal();
+});
 
 colorSelect.addEventListener("change", () => {
   const humanMoves = uciHistory.length - (humanColor === "b" ? 1 : 0);
@@ -842,6 +865,13 @@ new ResizeObserver(() => {
   clearHighlights();
   paintLastMove();
 }).observe($id("board"));
+
+evalEnabled = evalToggle.checked;
+if (evalEnabled) {
+  evalBarContainer.classList.add("visible");
+  resetEvalBar();
+  fetchEval(positions[0]);
+}
 
 refresh();
 loadTiers();
