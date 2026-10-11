@@ -10,12 +10,12 @@ def test_discover_checkpoints_groups_chunks_and_picks_highest_numerically(
     make_checkpoints: Callable[..., Path],
 ) -> None:
     checkpoints_dir = make_checkpoints(
-        ["bucket_1000_2", "bucket_1000_9", "bucket_1000_10", "bucket_1500_1"]
+        ["bucket_1000_2", "bucket_1000_9", "bucket_1000_10", "bucket_2000_1"]
     )
     found = ModelRegistry(checkpoints_dir).discover_checkpoints()
     assert found == {
         "1000": checkpoints_dir / "bucket_1000_10" / "best.pt",
-        "1500": checkpoints_dir / "bucket_1500_1" / "best.pt",
+        "2000": checkpoints_dir / "bucket_2000_1" / "best.pt",
     }
 
 
@@ -44,21 +44,21 @@ def test_discover_checkpoints_on_missing_directory_returns_empty(
 def test_available_tiers_follow_tier_config(
     make_checkpoints: Callable[..., Path],
 ) -> None:
-    registry = ModelRegistry(make_checkpoints(["bucket_1000_1", "bucket_1500_1"]))
+    registry = ModelRegistry(make_checkpoints(["bucket_1000_1", "bucket_2000_1"]))
     assert registry.available_tiers() == ["1000", "1500", "2000"]
 
 
 def test_tier_2000_needs_only_the_1500_checkpoint(
     make_checkpoints: Callable[..., Path],
 ) -> None:
-    registry = ModelRegistry(make_checkpoints(["bucket_1500_1"]))
+    registry = ModelRegistry(make_checkpoints(["bucket_2000_1"]))
     assert registry.available_tiers() == ["1500", "2000"]
 
 
 def test_get_player_caches_and_shares_one_model_between_1500_and_2000(
     make_checkpoints: Callable[..., Path],
 ) -> None:
-    registry = ModelRegistry(make_checkpoints(["bucket_1500_1"]))
+    registry = ModelRegistry(make_checkpoints(["bucket_2000_1"]))
     assert registry.get_player("1500") is registry.get_player("1500")
     assert registry.get_player("1500").model is registry.get_player("2000").model
     assert len(registry._loaded) == 1
@@ -86,8 +86,8 @@ def test_get_meta_uses_highest_chunk_and_is_shared_by_2000(
     make_checkpoints: Callable[..., Path],
 ) -> None:
     checkpoints_dir = make_checkpoints(
-        ["bucket_1500_1", "bucket_1500_2"],
-        epochs={"bucket_1500_1": 10, "bucket_1500_2": 20},
+        ["bucket_2000_1", "bucket_2000_2"],
+        epochs={"bucket_2000_1": 10, "bucket_2000_2": 20},
     )
     registry = ModelRegistry(checkpoints_dir)
     assert registry.get_meta("1500")["epoch"] == 20
@@ -109,7 +109,7 @@ def test_non_searching_player_returns_legal_move_and_sorted_candidates(
 def test_searching_player_returns_legal_move_and_restores_board(
     make_checkpoints: Callable[..., Path],
 ) -> None:
-    registry = ModelRegistry(make_checkpoints(["bucket_1500_1"]))
+    registry = ModelRegistry(make_checkpoints(["bucket_2000_1"]))
     board = chess.Board()
     board.push_san("e4")
     fen_before = board.fen()

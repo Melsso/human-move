@@ -16,7 +16,29 @@ RATED_GOOD_GAME = """\
 """
 
 CASUAL_GAME = """\
-[Event "Casual Blitz game"]
+[Event "Casual Rapid game"]
+[White "playerA"]
+[Black "playerB"]
+[WhiteElo "1050"]
+[BlackElo "980"]
+[Termination "Normal"]
+
+1. e4 e5 1-0
+"""
+
+BLITZ_GAME = """\
+[Event "Rated Blitz game"]
+[White "playerA"]
+[Black "playerB"]
+[WhiteElo "1050"]
+[BlackElo "980"]
+[Termination "Normal"]
+
+1. e4 e5 1-0
+"""
+
+RAPID_TOURNAMENT_GAME = """\
+[Event "Rated Rapid tournament https://lichess.org/tournament/abcdefgh"]
 [White "playerA"]
 [Black "playerB"]
 [WhiteElo "1050"]
@@ -27,11 +49,11 @@ CASUAL_GAME = """\
 """
 
 BOT_GAME = """\
-[Event "Rated Blitz game"]
+[Event "Rated Rapid game"]
 [White "playerA"]
 [Black "BotBlack"]
 [WhiteElo "1050"]
-[BlackElo "1500"]
+[BlackElo "1100"]
 [BlackTitle "BOT"]
 [Termination "Normal"]
 
@@ -39,7 +61,7 @@ BOT_GAME = """\
 """
 
 MISMATCHED_ELO_GAME = """\
-[Event "Rated Blitz game"]
+[Event "Rated Rapid game"]
 [White "playerA"]
 [Black "playerB"]
 [WhiteElo "1050"]
@@ -50,7 +72,7 @@ MISMATCHED_ELO_GAME = """\
 """
 
 ABANDONED_GAME = """\
-[Event "Rated Blitz game"]
+[Event "Rated Rapid game"]
 [White "playerA"]
 [Black "playerB"]
 [WhiteElo "1050"]
@@ -58,6 +80,40 @@ ABANDONED_GAME = """\
 [Termination "Abandoned"]
 
 1. e4 1-0
+"""
+
+RULES_INFRACTION_GAME = """\
+[Event "Rated Rapid game"]
+[White "playerA"]
+[Black "playerB"]
+[WhiteElo "1050"]
+[BlackElo "980"]
+[Termination "Rules infraction"]
+
+1. e4 e5 1-0
+"""
+
+VARIANT_GAME = """\
+[Event "Rated Rapid game"]
+[Variant "Chess960"]
+[White "playerA"]
+[Black "playerB"]
+[WhiteElo "1050"]
+[BlackElo "980"]
+[Termination "Normal"]
+
+1. e4 e5 1-0
+"""
+
+MISSING_ELO_GAME = """\
+[Event "Rated Rapid game"]
+[White "playerA"]
+[Black "playerB"]
+[WhiteElo "?"]
+[BlackElo "980"]
+[Termination "Normal"]
+
+1. e4 e5 1-0
 """
 
 
@@ -78,14 +134,24 @@ def test_keeps_rated_game_in_range() -> None:
     assert should_keep_game(game.headers, min_elo=900, max_elo=1100) is True
 
 
+def test_keeps_rated_rapid_tournament_game() -> None:
+    game = _parse(RAPID_TOURNAMENT_GAME)
+    assert should_keep_game(game.headers, min_elo=900, max_elo=1100) is True
+
+
 def test_rejects_casual_game() -> None:
     game = _parse(CASUAL_GAME)
     assert should_keep_game(game.headers, min_elo=900, max_elo=1100) is False
 
 
+def test_rejects_rated_blitz_game() -> None:
+    game = _parse(BLITZ_GAME)
+    assert should_keep_game(game.headers, min_elo=900, max_elo=1100) is False
+
+
 def test_rejects_bot_game() -> None:
     game = _parse(BOT_GAME)
-    assert should_keep_game(game.headers, min_elo=900, max_elo=1600) is False
+    assert should_keep_game(game.headers, min_elo=900, max_elo=1100) is False
 
 
 def test_rejects_mismatched_elo_game() -> None:
@@ -98,6 +164,21 @@ def test_rejects_abandoned_game() -> None:
     assert should_keep_game(game.headers, min_elo=900, max_elo=1100) is False
 
 
+def test_rejects_rules_infraction_game() -> None:
+    game = _parse(RULES_INFRACTION_GAME)
+    assert should_keep_game(game.headers, min_elo=900, max_elo=1100) is False
+
+
+def test_rejects_non_standard_variant() -> None:
+    headers = _parse_headers_only(VARIANT_GAME)
+    assert should_keep_game(headers, min_elo=900, max_elo=1100) is False
+
+
+def test_rejects_game_with_unknown_elo() -> None:
+    headers = _parse_headers_only(MISSING_ELO_GAME)
+    assert should_keep_game(headers, min_elo=900, max_elo=1100) is False
+
+
 def test_rejects_out_of_range_elo() -> None:
     game = _parse(RATED_GOOD_GAME)
     assert should_keep_game(game.headers, min_elo=1800, max_elo=2000) is False
@@ -106,10 +187,13 @@ def test_rejects_out_of_range_elo() -> None:
 def test_headers_only_and_full_parse_agree_on_every_sample_game() -> None:
     samples = [
         RATED_GOOD_GAME,
+        RAPID_TOURNAMENT_GAME,
         CASUAL_GAME,
+        BLITZ_GAME,
         BOT_GAME,
         MISMATCHED_ELO_GAME,
         ABANDONED_GAME,
+        RULES_INFRACTION_GAME,
     ]
     for pgn_text in samples:
         full_game = _parse(pgn_text)
@@ -152,10 +236,17 @@ def test_multi_bucket_game_builder_keeps_movetext_for_matched_bracket() -> None:
     assert builder.matched_bracket == BRACKET_1000
 
 
-def test_multi_bucket_game_builder_rejects_bot_and_casual_regardless_of_brackets() -> (
+def test_multi_bucket_game_builder_rejects_unwanted_games_regardless_of_brackets() -> (
     None
 ):
-    for pgn_text in [BOT_GAME, CASUAL_GAME, ABANDONED_GAME]:
+    unwanted = [
+        BOT_GAME,
+        CASUAL_GAME,
+        BLITZ_GAME,
+        ABANDONED_GAME,
+        RULES_INFRACTION_GAME,
+    ]
+    for pgn_text in unwanted:
         builder = MultiBucketGameBuilder([BRACKET_1000, BRACKET_1500, BRACKET_2000])
         game = chess.pgn.read_game(io.StringIO(pgn_text), Visitor=lambda b=builder: b)
         assert game is not None

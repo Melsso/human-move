@@ -1,6 +1,8 @@
-.PHONY: test lint format typecheck check sync reset serve prepare train count-games eval-stockfish eval-round-robin
+.PHONY: test lint format typecheck check sync reset serve prepare train count-games eval-stockfish eval-round-robin fetch-weights vendor
 
 EPOCHS ?= 10
+WEIGHTS_TAG ?= v0.1.0
+WEIGHTS_BASE ?= https://github.com/Melsso/human-move/releases/download/$(WEIGHTS_TAG)
 
 sync:
 	uv sync --all-packages
@@ -44,6 +46,15 @@ train: sync
 
 serve: sync
 	uv run --package chess-backend uvicorn chess_backend.main:app --reload --port 8000
+
+fetch-weights:
+	mkdir -p weights/bucket_1000_1 weights/bucket_2000_1
+	curl -fL $(WEIGHTS_BASE)/bucket_1000.pt -o weights/bucket_1000_1/best.pt
+	curl -fL $(WEIGHTS_BASE)/bucket_2000.pt -o weights/bucket_2000_1/best.pt
+	@echo "done. run: CHECKPOINTS_DIR=weights make serve"
+
+vendor:
+	bash scripts/vendor_static.sh
 
 eval-stockfish: sync
 	uv run --package chess-eval python -m chess_eval.stockfish $(TIER) \

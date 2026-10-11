@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-import os
+
 import chess
 
 INF = 10_000_000
@@ -116,41 +116,6 @@ def _popcount(bb: int) -> int:
     return bb.bit_count()
 
 
-def _evaluate_basic(board: chess.Board) -> int:
-    white = 0
-    black = 0
-    phase = 0
-    for pt in _PIECE_TYPES:
-        table = _PST[pt]
-        value = _VALUE[pt]
-        phase_weight = _PHASE[pt]
-        for sq in chess.scan_forward(board.pieces_mask(pt, chess.WHITE)):
-            white += value + table[sq ^ 56]
-            phase += phase_weight
-        for sq in chess.scan_forward(board.pieces_mask(pt, chess.BLACK)):
-            black += value + table[sq]
-            phase += phase_weight
-    phase = min(phase, 24)
-
-    wk = board.king(chess.WHITE)
-    bk = board.king(chess.BLACK)
-    if wk is not None:
-        i = wk ^ 56
-        white += (_KING_MG[i] * phase + _KING_EG[i] * (24 - phase)) // 24
-    if bk is not None:
-        black += (_KING_MG[bk] * phase + _KING_EG[bk] * (24 - phase)) // 24
-
-    if _popcount(board.bishops & board.occupied_co[chess.WHITE]) >= 2:
-        white += 30
-    if _popcount(board.bishops & board.occupied_co[chess.BLACK]) >= 2:
-        black += 30
-
-    score = white - black
-    if board.turn == chess.BLACK:
-        score = -score
-    return score + 10
-
-
 def _adjacent_files(f: int) -> int:
     m = 0
     if f > 0:
@@ -161,7 +126,6 @@ def _adjacent_files(f: int) -> int:
 
 
 def _rank_span(lo: int, hi: int) -> int:
-    """Union of ranks lo..hi inclusive, clipped to the board."""
     m = 0
     for r in range(max(lo, 0), min(hi, 7) + 1):
         m |= _RANK_BB[r]
@@ -186,8 +150,7 @@ _MOBILITY = (0, 0, 4, 3, 2, 1)
 _PASSED_BONUS = (0, 5, 10, 20, 35, 60, 100, 0)
 
 
-def _evaluate_full(board: chess.Board) -> int:
-    """Static evaluation in centipawns from the side-to-move's perspective."""
+def evaluate(board: chess.Board) -> int:
     occ_w = board.occupied_co[chess.WHITE]
     occ_b = board.occupied_co[chess.BLACK]
     free_w = chess.BB_ALL ^ occ_w
@@ -213,8 +176,7 @@ def _evaluate_full(board: chess.Board) -> int:
             phase += phase_weight
             if mob:
                 black += mob * _popcount(board.attacks_mask(sq) & free_b)
-    if phase > 24:
-        phase = 24
+    phase = min(phase, 24)
 
     for sq in chess.scan_forward(board.rooks & occ_w):
         f = _FILE_BB[chess.square_file(sq)]
@@ -259,11 +221,6 @@ def _evaluate_full(board: chess.Board) -> int:
     if board.turn == chess.BLACK:
         score = -score
     return score + 10
-
-
-evaluate = (
-    _evaluate_basic if os.environ.get("CHESS_EVAL") == "basic" else _evaluate_full
-)
 
 
 def _key(board: chess.Board) -> tuple[object, ...]:

@@ -7,7 +7,7 @@ EPOCHS="${2:-10}"
 FORCE="${3:-}"
 BATCH_SIZE="${BATCH_SIZE:-1024}"
 LR="${LR:-2e-3}"
-TRAIN_FLAGS="${TRAIN_FLAGS:-}"
+TRAIN_FLAGS="${TRAIN_FLAGS:---no-save-every-epoch}"
 
 make sync
 

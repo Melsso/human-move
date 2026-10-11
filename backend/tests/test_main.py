@@ -51,7 +51,7 @@ def test_health() -> None:
 def test_tiers_lists_configured_tiers_with_available_checkpoints(
     client_factory: Callable[[list[str]], TestClient],
 ) -> None:
-    client = client_factory(["bucket_1000_1", "bucket_1500_1"])
+    client = client_factory(["bucket_1000_1", "bucket_2000_1"])
     response = client.get("/api/tiers")
     assert response.status_code == 200
     assert [t["tier"] for t in response.json()] == ["1000", "1500", "2000"]
@@ -86,7 +86,7 @@ def test_move_happy_path_returns_model_reply(
 def test_move_with_searching_tier_returns_model_reply(
     client_factory: Callable[[list[str]], TestClient],
 ) -> None:
-    client = client_factory(["bucket_1500_1"])
+    client = client_factory(["bucket_2000_1"])
     response = client.post(
         "/api/move",
         json={"fen": chess.Board().fen(), "move_uci": "e2e4", "tier": "1500"},
@@ -225,3 +225,99 @@ def test_eval_rejects_malformed_fen() -> None:
     client = TestClient(main_module.app)
     response = client.post("/api/eval", json={"fen": "not a real fen"})
     assert response.status_code == 400
+
+
+def test_move_accepts_history_matching_the_fen(
+    client_factory: Callable[[list[str]], TestClient],
+) -> None:
+    client = client_factory(["bucket_1000_1"])
+    board = chess.Board()
+    history = [board.push_san(san).uci() for san in ["e4", "e5"]]
+
+    response = client.post(
+        "/api/move",
+        json={
+            "fen": board.fen(),
+            "history": history,
+            "move_uci": "g1f3",
+            "tier": "1000",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["human_move_san"] == "Nf3"
+    assert body["model_move_uci"] is not None
+
+
+def test_move_rejects_history_that_does_not_match_the_fen(
+    client_factory: Callable[[list[str]], TestClient],
+) -> None:
+    client = client_factory(["bucket_1000_1"])
+
+    response = client.post(
+        "/api/move",
+        json={
+            "fen": chess.Board().fen(),
+            "history": ["e2e4"],
+            "move_uci": "e2e4",
+            "tier": "1000",
+        },
+    )
+    assert response.status_code == 400
+    assert "history does not match fen" in response.json()["detail"]
+
+
+def test_move_without_human_move_lets_the_model_open(
+    client_factory: Callable[[list[str]], TestClient],
+) -> None:
+    client = client_factory(["bucket_1000_1"])
+    start_fen = chess.Board().fen()
+    response = client.post("/api/move", json={"fen": start_fen, "tier": "1000"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["human_move_san"] is None
+    assert body["fen_after_human"] == start_fen
+    assert body["model_move_uci"] is not None
+    assert body["game_over"] is False
+
+
+def test_move_rejects_illegal_move_inside_history(
+    client_factory: Callable[[list[str]], TestClient],
+) -> None:
+    client = client_factory(["bucket_1000_1"])
+    response = client.post(
+        "/api/move",
+        json={
+            "fen": chess.Board().fen(),
+            "history": ["e2e5"],
+            "move_uci": "e2e4",
+            "tier": "1000",
+        },
+    )
+    assert response.status_code == 400
+    assert "invalid history" in response.json()["detail"]
+
+
+def test_move_ends_game_on_threefold_repetition_when_history_is_sent(
+    client_factory: Callable[[list[str]], TestClient],
+) -> None:
+    client = client_factory(["bucket_1000_1"])
+    history = ["g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1"]
+    board = chess.Board()
+    for uci in history:
+        board.push_uci(uci)
+
+    response = client.post(
+        "/api/move",
+        json={
+            "fen": board.fen(),
+            "history": history,
+            "move_uci": "f6g8",
+            "tier": "1000",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["game_over"] is True
+    assert body["model_move_uci"] is None
+    assert body["result"] == "1/2-1/2"

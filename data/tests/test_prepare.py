@@ -77,10 +77,10 @@ def test_process_chunk_writes_separate_files_per_matched_bracket(
     )
 
     assert counts["1000"] > 0
-    assert counts["1500"] > 0
+    assert counts["2000"] > 0
 
     assert (out_dir / "bucket_1000_1.npz").exists()
-    assert (out_dir / "bucket_1500_1.npz").exists()
+    assert (out_dir / "bucket_2000_1.npz").exists()
 
     data_1000 = np.load(out_dir / "bucket_1000_1.npz")
     assert data_1000["boards"].shape[1:] == (NUM_PLANES, 8, 8)
@@ -103,7 +103,7 @@ def test_process_chunk_with_zst_source(tmp_path: Path) -> None:
         skip_first_n_plies=2,
     )
     assert counts["1000"] > 0
-    assert counts["1500"] > 0
+    assert counts["2000"] > 0
 
 
 def test_process_chunk_raises_source_exhausted_when_skip_exceeds_file(
@@ -134,7 +134,7 @@ def test_process_chunk_handles_partial_final_chunk_without_error(
         skip_first_n_plies=2,
     )
     assert counts["1000"] > 0
-    assert counts["1500"] > 0
+    assert counts["2000"] > 0
 
 
 def test_process_chunk_cleans_up_its_temp_directory(tmp_path: Path) -> None:
@@ -242,8 +242,8 @@ def test_prepare_all_chunks_with_bucket_subset(tmp_path: Path) -> None:
     )
 
     assert (out_dir / "bucket_1000_1.npz").exists()
-    assert not (out_dir / "bucket_1500_1.npz").exists()
-    assert list(out_dir.glob("bucket_1500_*.npz")) == []
+    assert not (out_dir / "bucket_2000_1.npz").exists()
+    assert list(out_dir.glob("bucket_2000_*.npz")) == []
 
 
 def test_cli_runs_end_to_end_and_produces_expected_files(
@@ -259,7 +259,7 @@ def test_cli_runs_end_to_end_and_produces_expected_files(
     main()
 
     assert (out_dir / "bucket_1000_1.npz").exists()
-    assert (out_dir / "bucket_1500_1.npz").exists()
+    assert (out_dir / "bucket_2000_1.npz").exists()
 
 
 def test_cli_respects_buckets_flag(
@@ -285,7 +285,7 @@ def test_cli_respects_buckets_flag(
     main()
 
     assert (out_dir / "bucket_1000_1.npz").exists()
-    assert not (out_dir / "bucket_1500_1.npz").exists()
+    assert not (out_dir / "bucket_2000_1.npz").exists()
 
 
 def test_cli_rejects_unknown_bucket_name(

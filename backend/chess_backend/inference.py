@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -21,7 +22,9 @@ from chess_shared import (
 from chess_training.model import MaiaPolicyNet, load_checkpoint, model_from_checkpoint
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_CHECKPOINTS_DIR = REPO_ROOT / "training" / "checkpoints"
+DEFAULT_CHECKPOINTS_DIR = Path(
+    os.environ.get("CHECKPOINTS_DIR", REPO_ROOT / "training" / "checkpoints")
+)
 _CHUNK_DIR_RE = re.compile(r"^bucket_(.+)_(\d+)$")
 
 

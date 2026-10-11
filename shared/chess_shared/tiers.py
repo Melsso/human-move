@@ -15,6 +15,6 @@ class TierConfig:
 
 TIER_CONFIGS: dict[str, TierConfig] = {
     "1000": TierConfig(checkpoint="1000", temperature=0.3),
-    "1500": TierConfig(checkpoint="1500", search_depth=3, search_weight=1.0),
-    "2000": TierConfig(checkpoint="1500", search_depth=6, search_weight=4.0),
+    "1500": TierConfig(checkpoint="2000", search_depth=3, search_weight=1.0),
+    "2000": TierConfig(checkpoint="2000", search_depth=6, search_weight=4.0),
 }

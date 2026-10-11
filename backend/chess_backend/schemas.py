@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TierInfo(BaseModel):
@@ -18,12 +18,13 @@ class MoveCandidate(BaseModel):
 
 class MoveRequest(BaseModel):
     fen: str
-    move_uci: str
+    move_uci: str | None = None
     tier: str
+    history: list[str] = Field(default_factory=list, max_length=1000)
 
 
 class MoveResponse(BaseModel):
-    human_move_san: str
+    human_move_san: str | None
     fen_after_human: str
     model_move_uci: str | None
     model_move_san: str | None

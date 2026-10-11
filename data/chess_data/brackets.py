@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# bucket names are the average rating of the training games
 DEFAULT_MAX_ELO_GAP = 200
 
 
@@ -15,7 +16,7 @@ class EloBracket:
 
 DEFAULT_BRACKETS: tuple[EloBracket, ...] = (
     EloBracket("1000", 900, 1100),
-    EloBracket("1500", 1900, 2100),
+    EloBracket("2000", 1900, 2100),
 )
 
 

@@ -1,0 +1,45 @@
+{
+  "tier": "1500",
+  "config": {
+    "checkpoint": "2000",
+    "temperature": 0.0,
+    "search_depth": 3,
+    "search_weight": 1.0,
+    "search_top_k": 6,
+    "search_max_nodes": 0
+  },
+  "games_per_level": 100,
+  "move_time_ms": 1000,
+  "levels": [
+    {
+      "stockfish_elo": 1320,
+      "wins": 77,
+      "draws": 8,
+      "losses": 15,
+      "score": 0.81,
+      "implied_elo": 1571.8925671703284,
+      "implied_elo_low": 1485.9785474817843,
+      "implied_elo_high": 1657.8065868588724
+    },
+    {
+      "stockfish_elo": 1500,
+      "wins": 51,
+      "draws": 12,
+      "losses": 37,
+      "score": 0.57,
+      "implied_elo": 1548.962560037162,
+      "implied_elo_low": 1480.6292628437134,
+      "implied_elo_high": 1617.2958572306104
+    },
+    {
+      "stockfish_elo": 1700,
+      "wins": 32,
+      "draws": 20,
+      "losses": 48,
+      "score": 0.42,
+      "implied_elo": 1643.9285187339851,
+      "implied_elo_low": 1575.387838012444,
+      "implied_elo_high": 1712.4691994555265
+    }
+  ]
+}

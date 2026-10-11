@@ -75,7 +75,7 @@ def test_play_game_is_deterministic_for_same_seed() -> None:
 
 def test_run_pairing_games_sum_to_requested_count(tmp_path: Path) -> None:
     checkpoints_dir = _make_checkpoints_dir(
-        tmp_path, ["bucket_1000_1", "bucket_1500_1"]
+        tmp_path, ["bucket_1000_1", "bucket_2000_1"]
     )
     result = run_pairing(
         "1000", "1500", games=4, checkpoints_dir=checkpoints_dir, workers=1
@@ -86,7 +86,7 @@ def test_run_pairing_games_sum_to_requested_count(tmp_path: Path) -> None:
 
 def test_round_robin_produces_all_pairwise_combinations(tmp_path: Path) -> None:
     checkpoints_dir = _make_checkpoints_dir(
-        tmp_path, ["bucket_1000_1", "bucket_1500_1"]
+        tmp_path, ["bucket_1000_1", "bucket_2000_1"]
     )
     summary = round_robin(
         ["1000", "1500", "2000"],
@@ -102,7 +102,7 @@ def test_round_robin_produces_all_pairwise_combinations(tmp_path: Path) -> None:
 
 def test_round_robin_writes_json_when_out_path_given(tmp_path: Path) -> None:
     checkpoints_dir = _make_checkpoints_dir(
-        tmp_path, ["bucket_1000_1", "bucket_1500_1"]
+        tmp_path, ["bucket_1000_1", "bucket_2000_1"]
     )
     out_path = tmp_path / "results" / "round_robin.json"
     round_robin(

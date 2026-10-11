@@ -1,0 +1,43 @@
+{
+  "tiers": [
+    "1000",
+    "1500",
+    "2000"
+  ],
+  "games_per_pairing": 100,
+  "pairings": [
+    {
+      "tier_a": "1000",
+      "tier_b": "1500",
+      "wins_a": 1,
+      "draws": 6,
+      "losses_a": 93,
+      "score_a": 0.04,
+      "relative_elo_a_minus_b": -552.0844966846423,
+      "relative_elo_low": -719.3069752386091,
+      "relative_elo_high": -384.8620181306757
+    },
+    {
+      "tier_a": "1000",
+      "tier_b": "2000",
+      "wins_a": 0,
+      "draws": 2,
+      "losses_a": 98,
+      "score_a": 0.01,
+      "relative_elo_a_minus_b": -798.2540778390199,
+      "relative_elo_low": -1100.7600820842727,
+      "relative_elo_high": -495.74807359376746
+    },
+    {
+      "tier_a": "1500",
+      "tier_b": "2000",
+      "wins_a": 5,
+      "draws": 15,
+      "losses_a": 80,
+      "score_a": 0.125,
+      "relative_elo_a_minus_b": -338.0392160057027,
+      "relative_elo_low": -439.54267631904196,
+      "relative_elo_high": -236.53575569236347
+    }
+  ]
+}

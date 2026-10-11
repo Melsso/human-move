@@ -15,6 +15,7 @@ training/checkpoints/*.ckpt
 training/runs/
 wandb/
 
+weights/
 best*
 epoch*
 
