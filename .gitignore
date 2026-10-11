@@ -12,6 +12,7 @@ data/processed/*.npz
 
 training/checkpoints/*.pt
 training/checkpoints/*.ckpt
+training/checkpoints/
 training/runs/
 wandb/
 
